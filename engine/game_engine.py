@@ -9,7 +9,7 @@ for turning user input into board changes.
 
 from dataclasses import dataclass
 
-from config.settings import CELL_SIZE_PX, MOVE_DURATION_MS
+from config.settings import CELL_SIZE_PX, MOVE_DURATION_PER_CELL_MS
 from domain.board import EMPTY_TOKEN
 from domain.piece_token import color_of
 
@@ -71,11 +71,18 @@ class GameEngine:
             # iteration's spec text; revisit if a test says otherwise.
             return
 
-        complete_at = self._clock.now() + MOVE_DURATION_MS
+        complete_at = self._clock.now() + self._move_duration_ms(source, destination)
         self._pending_moves.append(
             _PendingMove(source[0], source[1], destination[0], destination[1], complete_at)
         )
         self._selected = None
+
+    @staticmethod
+    def _move_duration_ms(source, destination):
+        row_distance = abs(destination[0] - source[0])
+        col_distance = abs(destination[1] - source[1])
+        distance = max(row_distance, col_distance)
+        return distance * MOVE_DURATION_PER_CELL_MS
 
     def _settle_completed_moves(self):
         now = self._clock.now()

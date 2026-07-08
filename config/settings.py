@@ -7,11 +7,15 @@ touches this file and whatever loads it - not the logic that uses it.
 
 CELL_SIZE_PX = 100
 
-# ASSUMPTION: flat move duration regardless of piece type or distance.
-# The only test data available (iteration 2 fixtures) shows a single-cell
-# move settling within 1000ms of being requested; there is no test data
-# yet that distinguishes "always 1000ms" from "1000ms per cell of
-# distance" or "duration depends on piece type". If that turns out to be
-# wrong, this is the only line that needs to change - GameEngine just
-# asks a MoveTimingPolicy-like source for a duration, it doesn't compute one.
-MOVE_DURATION_MS = 1000
+# Duration is per cell of distance traveled - confirmed by a VPL test
+# where a 2-cell rook move took exactly 2000ms to settle, not 1000ms.
+# distance = Chebyshev distance (max of row/col delta), which matches
+# straight and diagonal sliding moves exactly.
+#
+# ASSUMPTION still open: knight distance under this same Chebyshev
+# formula gives 2 (e.g. offset (2,1) -> max(2,1)=2), i.e. 2000ms for a
+# knight hop. No test data confirms or denies this yet - a knight isn't
+# a sliding piece, so "distance" is a less natural concept for it. If a
+# test disagrees, this is the one formula (in engine/game_engine.py) to
+# revisit for knight-specific handling.
+MOVE_DURATION_PER_CELL_MS = 1000
