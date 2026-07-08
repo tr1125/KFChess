@@ -6,11 +6,14 @@ adding a config entry that composes these; it never means writing a new
 pattern class or touching engine code.
 """
 
+from domain.board import EMPTY_TOKEN
+
 
 class StepPattern:
     """A single fixed offset hop (e.g. a king's one square, a knight's
-    L-shape). Exactly one candidate destination per offset, regardless
-    of what occupies it - the board is only consulted for bounds.
+    L-shape). Exactly one candidate destination per offset. There is no
+    "path" to block for a single hop - that's why a knight jumps over
+    blockers - so this pattern never looks at occupancy, only bounds.
     """
 
     def __init__(self, offsets):
@@ -26,12 +29,13 @@ class StepPattern:
 
 
 class SlidePattern:
-    """Repeated movement along a direction until the board edge.
-
-    NOTE: this iteration's spec only asks for shape legality ("a rook
-    moving diagonally is illegal"), not blocking by pieces in the way.
-    Blocking is intentionally not implemented here - see
-    config/piece_definitions.py for where to add it when it's needed.
+    """Repeated movement along a direction until the board edge OR until
+    an occupied cell is reached. The occupied cell itself is included as
+    a candidate (a capture may be legal there); nothing past it is,
+    since another piece is in the way. Whether landing on that occupied
+    cell is *actually* legal (same color = no) is decided by
+    MovementRules, not here - this class only knows geometry + occupancy,
+    not whose piece is whose.
     """
 
     def __init__(self, directions):
@@ -43,6 +47,8 @@ class SlidePattern:
             target_row, target_col = row + delta_row, col + delta_col
             while board.in_bounds(target_row, target_col):
                 results.append((target_row, target_col))
+                if board.get(target_row, target_col) != EMPTY_TOKEN:
+                    break  # path blocked beyond this cell
                 target_row += delta_row
                 target_col += delta_col
         return results

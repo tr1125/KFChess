@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from config.settings import CELL_SIZE_PX, MOVE_DURATION_MS
 from domain.board import EMPTY_TOKEN
-from domain.piece_token import color_of, type_of
+from domain.piece_token import color_of
 
 
 @dataclass
@@ -61,9 +61,8 @@ class GameEngine:
         self._settle_completed_moves()
 
     def _try_request_move(self, source, destination, selected_token):
-        piece_type = type_of(selected_token)
         is_legal = self._movement_rules.is_legal(
-            piece_type, self._board, source[0], source[1], destination[0], destination[1]
+            selected_token, self._board, source[0], source[1], destination[0], destination[1]
         )
         if not is_legal:
             # ASSUMPTION: an illegal-shape click is treated as a no-op for
