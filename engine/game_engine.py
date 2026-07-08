@@ -2,9 +2,10 @@
 requests, and settling completed moves as the clock advances.
 
 Board only knows how to store tokens and apply a move. MovementRules
-only knows whether a shape is legal. Selection state, and the decision
-of *when* to ask MovementRules, live here - the one place responsible
-for turning user input into board changes.
+only knows whether a shape is legal. Selection state, which pieces are
+currently in transit, and the decision of *when* to ask MovementRules,
+live here - the one place responsible for turning user input into
+board changes.
 """
 
 from dataclasses import dataclass
@@ -44,14 +45,20 @@ class GameEngine:
         token = self._board.get(row, col)
 
         if self._selected is None:
-            if token != EMPTY_TOKEN:
+            # A piece already mid-route cannot be selected - this is what
+            # makes redirecting an in-flight piece impossible. Once it
+            # settles, _settle_completed_moves() removes its pending
+            # entry and it becomes selectable again immediately - no
+            # separate cooldown mechanism exists or is needed.
+            if token != EMPTY_TOKEN and not self._has_pending_move_from(row, col):
                 self._selected = (row, col)
             return
 
         selected_token = self._board.get(*self._selected)
 
         if token != EMPTY_TOKEN and color_of(token) == color_of(selected_token):
-            self._selected = (row, col)
+            if not self._has_pending_move_from(row, col):
+                self._selected = (row, col)
             return
 
         self._try_request_move(self._selected, (row, col), selected_token)
@@ -60,7 +67,21 @@ class GameEngine:
         self._clock.advance(ms)
         self._settle_completed_moves()
 
+    def _has_pending_move_from(self, row, col):
+        return any(
+            move.from_row == row and move.from_col == col for move in self._pending_moves
+        )
+
+    def _has_pending_move_by_opponent(self, color):
+        return any(
+            color_of(self._board.get(move.from_row, move.from_col)) != color
+            for move in self._pending_moves
+        )
+
     def _try_request_move(self, source, destination, selected_token):
+        if self._has_pending_move_by_opponent(color_of(selected_token)):
+            return
+
         is_legal = self._movement_rules.is_legal(
             selected_token, self._board, source[0], source[1], destination[0], destination[1]
         )

@@ -204,3 +204,45 @@ def test_illegal_shape_move_is_never_scheduled_even_after_waiting():
     )
     expected = "wR . .\n. . .\n. . .\n"
     assert run_and_capture(input_text) == expected
+
+
+# --- Iteration 6: no redirecting a piece mid-route; no cooldown after arrival ---
+
+def test_piece_cannot_be_reselected_while_still_in_transit():
+    # wR moves (0,0) -> (0,2): 2 cells = 2000ms. While in transit, clicking
+    # its (still-displayed) origin square must not select it, so a second
+    # click elsewhere must not redirect it either.
+    input_text = (
+        "Board:\n"
+        "wR . .\n"
+        ". . .\n"
+        "Commands:\n"
+        "click 50 50\n"
+        "click 250 50\n"
+        "wait 500\n"
+        "click 50 50\n"
+        "click 50 150\n"
+        "wait 1500\n"
+        "print board\n"
+    )
+    # If redirection were possible, the rook would end up at (1,0) instead.
+    expected = ". . wR\n. . .\n"
+    assert run_and_capture(input_text) == expected
+
+
+def test_piece_can_move_again_immediately_after_arrival_no_cooldown():
+    input_text = (
+        "Board:\n"
+        "wR . .\n"
+        ". . .\n"
+        "Commands:\n"
+        "click 50 50\n"
+        "click 250 50\n"
+        "wait 2000\n"
+        "click 250 50\n"
+        "click 250 150\n"
+        "wait 1000\n"
+        "print board\n"
+    )
+    expected = ". . .\n. . wR\n"
+    assert run_and_capture(input_text) == expected
