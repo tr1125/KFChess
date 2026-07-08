@@ -3,6 +3,8 @@ import sys
 from serialization.board_serializer import parse_board, to_canonical, BoardFormatError
 from engine.clock import ManualClock
 from engine.game_engine import GameEngine
+from domain.movement.movement_rules import MovementRules
+from config.piece_definitions import PIECE_MOVEMENT_PATTERNS
 
 SECTION_BOARD = "Board:"
 SECTION_COMMANDS = "Commands:"
@@ -57,7 +59,8 @@ def run(text, out):
         out.write(f"ERROR {error.code}\n")
         return
 
-    engine = GameEngine(board, ManualClock())
+    movement_rules = MovementRules(PIECE_MOVEMENT_PATTERNS)
+    engine = GameEngine(board, ManualClock(), movement_rules)
 
     for command_line in command_lines:
         _dispatch(command_line, engine, out)
