@@ -332,3 +332,44 @@ def test_movement_conflict_first_registered_piece_wins_destination():
     # wR occupies (0,2).  wK is cancelled, stays at (2,2).
     expected = ". . wR\n. . .\n. . wK\n"
     assert run_and_capture(input_text) == expected
+
+
+# --- Iteration 8: game-over on king capture ---
+
+def test_capturing_enemy_king_ends_the_game():
+    """When a piece lands on the enemy king, the game is over and the
+    board reflects the capture (the king token is gone)."""
+    input_text = (
+        "Board:\n"
+        "wR . bK\n"
+        ". . .\n"
+        "Commands:\n"
+        "click 50 50\n"   # select wR (row=0, col=0)
+        "click 250 50\n"  # move wR -> (row=0, col=2): 2 cells, arrives 2000ms
+        "wait 2000\n"
+        "print board\n"
+    )
+    # wR has captured bK; bK is gone.
+    expected = ". . wR\n. . .\n"
+    assert run_and_capture(input_text) == expected
+
+
+def test_move_commands_ignored_after_game_over():
+    """Once the enemy king is captured, all subsequent click and wait
+    commands are no-ops - no piece on the board moves."""
+    input_text = (
+        "Board:\n"
+        "wR . bK\n"
+        ". wK .\n"
+        "Commands:\n"
+        "click 50 50\n"   # select wR (row=0, col=0)
+        "click 250 50\n"  # move wR -> (row=0, col=2): captures bK, 2000ms
+        "wait 2000\n"     # bK captured; game over
+        "click 150 150\n" # try to select wK (row=1, col=1) - ignored
+        "click 50 150\n"  # try to move wK to (row=1, col=0) - ignored
+        "wait 1000\n"     # ignored
+        "print board\n"
+    )
+    # wR sits at (0,2) from the capture; wK remains at (1,1) unmoved.
+    expected = ". . wR\n. wK .\n"
+    assert run_and_capture(input_text) == expected

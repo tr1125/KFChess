@@ -12,7 +12,9 @@ from dataclasses import dataclass
 
 from config.settings import CELL_SIZE_PX, MOVE_DURATION_PER_CELL_MS
 from domain.board import EMPTY_TOKEN
-from domain.piece_token import color_of
+from domain.piece_token import color_of, type_of
+
+KING_TYPE = "K"
 
 
 @dataclass
@@ -31,11 +33,18 @@ class GameEngine:
         self._movement_rules = movement_rules
         self._selected = None  # (row, col) or None
         self._pending_moves = []
+        self._game_over = False
 
     def board(self):
         return self._board
 
+    def is_game_over(self):
+        return self._game_over
+
     def click(self, x_px, y_px):
+        if self._game_over:
+            return
+
         col = x_px // CELL_SIZE_PX
         row = y_px // CELL_SIZE_PX
 
@@ -64,6 +73,8 @@ class GameEngine:
         self._try_request_move(self._selected, (row, col), selected_token)
 
     def wait(self, ms):
+        if self._game_over:
+            return
         self._clock.advance(ms)
         self._settle_completed_moves()
 
@@ -122,6 +133,10 @@ class GameEngine:
                     self._board.apply_move(
                         move.from_row, move.from_col, move.to_row, move.to_col
                     )
+                    if target_token != EMPTY_TOKEN and type_of(target_token) == KING_TYPE:
+                        self._game_over = True
+                        self._pending_moves = []
+                        return
                 # else: destination is friendly - silently discard the move.
             else:
                 still_pending.append(move)
