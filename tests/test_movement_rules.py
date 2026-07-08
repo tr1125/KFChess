@@ -188,3 +188,109 @@ def test_can_capture_enemy_color():
     ]
     board = board_from(rows)
     assert make_rules().is_legal("wK", board, 0, 0, 0, 1)
+
+
+# --- Pawn: direction depends on color, move and capture are different shapes ---
+#
+# Convention assumed by config/piece_definitions.py: white moves toward
+# row 0, black moves toward higher row indices. Flip these tests (and the
+# offsets in piece_definitions.py) together if a VPL test disagrees.
+
+def test_white_pawn_moves_one_cell_forward_is_legal():
+    rows = [
+        [".", ".", "."],
+        [".", "wP", "."],
+        [".", ".", "."],
+    ]
+    board = board_from(rows)
+    assert make_rules().is_legal("wP", board, 1, 1, 0, 1)
+
+
+def test_white_pawn_cannot_move_two_cells():
+    rows = [
+        [".", ".", "."],
+        [".", ".", "."],
+        [".", "wP", "."],
+    ]
+    board = board_from(rows)
+    assert not make_rules().is_legal("wP", board, 2, 1, 0, 1)
+
+
+def test_white_pawn_cannot_move_forward_onto_occupied_cell():
+    rows = [
+        [".", "bN", "."],
+        [".", "wP", "."],
+        [".", ".", "."],
+    ]
+    board = board_from(rows)
+    assert not make_rules().is_legal("wP", board, 1, 1, 0, 1)
+
+
+def test_white_pawn_captures_diagonally():
+    rows = [
+        ["bN", ".", "."],
+        [".", "wP", "."],
+        [".", ".", "."],
+    ]
+    board = board_from(rows)
+    assert make_rules().is_legal("wP", board, 1, 1, 0, 0)
+
+
+def test_white_pawn_cannot_capture_diagonally_own_color():
+    rows = [
+        ["wN", ".", "."],
+        [".", "wP", "."],
+        [".", ".", "."],
+    ]
+    board = board_from(rows)
+    assert not make_rules().is_legal("wP", board, 1, 1, 0, 0)
+
+
+def test_white_pawn_cannot_move_diagonally_to_empty_cell():
+    rows = [
+        [".", ".", "."],
+        [".", "wP", "."],
+        [".", ".", "."],
+    ]
+    board = board_from(rows)
+    assert not make_rules().is_legal("wP", board, 1, 1, 0, 0)
+
+
+def test_black_pawn_moves_one_cell_forward_is_legal():
+    rows = [
+        [".", ".", "."],
+        [".", "bP", "."],
+        [".", ".", "."],
+    ]
+    board = board_from(rows)
+    assert make_rules().is_legal("bP", board, 1, 1, 2, 1)
+
+
+def test_black_pawn_cannot_move_two_cells():
+    rows = [
+        [".", "bP", "."],
+        [".", ".", "."],
+        [".", ".", "."],
+    ]
+    board = board_from(rows)
+    assert not make_rules().is_legal("bP", board, 0, 1, 2, 1)
+
+
+def test_black_pawn_captures_diagonally():
+    rows = [
+        [".", "bP", "."],
+        ["wN", ".", "."],
+        [".", ".", "."],
+    ]
+    board = board_from(rows)
+    assert make_rules().is_legal("bP", board, 0, 1, 1, 0)
+
+
+def test_black_pawn_cannot_move_diagonally_to_empty_cell():
+    rows = [
+        [".", "bP", "."],
+        [".", ".", "."],
+        [".", ".", "."],
+    ]
+    board = board_from(rows)
+    assert not make_rules().is_legal("bP", board, 0, 1, 1, 0)
