@@ -110,7 +110,19 @@ class GameEngine:
         still_pending = []
         for move in self._pending_moves:
             if move.complete_at_ms <= now:
-                self._board.apply_move(move.from_row, move.from_col, move.to_row, move.to_col)
+                mover_token = self._board.get(move.from_row, move.from_col)
+                target_token = self._board.get(move.to_row, move.to_col)
+                # Cancel the move if a friendly piece now occupies the
+                # destination (landed there first, or was already sitting
+                # there).  Enemy pieces and empty squares are fine - an
+                # enemy means a capture, which apply_move handles by
+                # overwriting.  The mover token stays at its origin square.
+                if (target_token == EMPTY_TOKEN or
+                        color_of(target_token) != color_of(mover_token)):
+                    self._board.apply_move(
+                        move.from_row, move.from_col, move.to_row, move.to_col
+                    )
+                # else: destination is friendly - silently discard the move.
             else:
                 still_pending.append(move)
         self._pending_moves = still_pending

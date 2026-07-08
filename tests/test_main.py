@@ -246,3 +246,89 @@ def test_piece_can_move_again_immediately_after_arrival_no_cooldown():
     )
     expected = ". . .\n. . wR\n"
     assert run_and_capture(input_text) == expected
+
+
+# --- Iteration 7: advanced real-time interaction cases ---
+
+def test_enemy_collision_capture_on_arrival():
+    """A piece that arrives at a square occupied by an enemy captures it.
+    The captured token is simply overwritten; no special capture logic is
+    needed beyond applying the move."""
+    input_text = (
+        "Board:\n"
+        "wR . bK\n"
+        ". . .\n"
+        ". . .\n"
+        "Commands:\n"
+        "click 50 50\n"   # select wR (row=0, col=0)
+        "click 250 50\n"  # move wR to (row=0, col=2) - 2 cells, 2000ms
+        "wait 2000\n"
+        "print board\n"
+    )
+    expected = ". . wR\n. . .\n. . .\n"
+    assert run_and_capture(input_text) == expected
+
+
+def test_premove_is_blocked_while_enemy_is_in_transit():
+    """While an enemy piece is in flight the local player cannot queue a
+    new move.  The attempted click sequence must be a complete no-op."""
+    input_text = (
+        "Board:\n"
+        "bR . .\n"
+        ". . .\n"
+        ". . wK\n"
+        "Commands:\n"
+        "click 50 50\n"    # select bR (row=0, col=0)
+        "click 50 250\n"   # move bR to (row=2, col=0) - 2 cells, 2000ms
+        "wait 500\n"       # bR still in transit
+        "click 250 250\n"  # try to select wK (row=2, col=2)
+        "click 150 150\n"  # try to move wK to (row=1, col=1) - must be blocked
+        "wait 2000\n"      # bR settles; wK never moved
+        "print board\n"
+    )
+    expected = ". . .\n. . .\nbR . wK\n"
+    assert run_and_capture(input_text) == expected
+
+
+def test_friendly_piece_at_destination_cancels_in_transit_move():
+    """If a friendly piece occupies the destination by the time a second
+    piece arrives there, the second move is silently cancelled - the piece
+    stays at its origin rather than overwriting its teammate."""
+    input_text = (
+        "Board:\n"
+        "wR . .\n"
+        ". . wK\n"
+        "Commands:\n"
+        "click 250 150\n"  # select wK (row=1, col=2)
+        "click 250 50\n"   # queue wK -> (row=0, col=2): 1 cell, arrives 1000ms
+        "click 50 50\n"    # select wR (row=0, col=0)
+        "click 250 50\n"   # queue wR -> (row=0, col=2): 2 cells, arrives 2000ms
+        "wait 2000\n"      # wK arrives first; wR's move is cancelled at landing
+        "print board\n"
+    )
+    # wK moved to (0,2).  wR stayed at (0,0) because (0,2) was already
+    # friendly-occupied when wR arrived.
+    expected = "wR . wK\n. . .\n"
+    assert run_and_capture(input_text) == expected
+
+
+def test_movement_conflict_first_registered_piece_wins_destination():
+    """When two friendly pieces are both headed for the same empty square
+    and arrive at the same instant, the first-registered move is applied
+    and the second is cancelled (piece stays at its origin)."""
+    input_text = (
+        "Board:\n"
+        "wR . .\n"
+        ". . .\n"
+        ". . wK\n"
+        "Commands:\n"
+        "click 50 50\n"    # select wR (row=0, col=0)
+        "click 250 50\n"   # queue wR -> (row=0, col=2): 2 cells, arrives 2000ms
+        "click 250 250\n"  # select wK (row=2, col=2)
+        "click 250 50\n"   # queue wK -> (row=0, col=2): 2 cells, arrives 2000ms
+        "wait 2000\n"      # both complete; wR registered first, so wR wins
+        "print board\n"
+    )
+    # wR occupies (0,2).  wK is cancelled, stays at (2,2).
+    expected = ". . wR\n. . .\n. . wK\n"
+    assert run_and_capture(input_text) == expected
