@@ -1,16 +1,17 @@
 """Real-time move orchestration: click selection, shape-legal move
-requests, and settling completed moves as the clock advances.
+requests, jumps, and settling completed moves/jumps as the clock
+advances.
 
 Board only knows how to store tokens and apply a move. MovementRules
 only knows whether a shape is legal. Selection state, which pieces are
-currently in transit, and the decision of *when* to ask MovementRules,
-live here - the one place responsible for turning user input into
-board changes.
+currently in transit or airborne, and the decision of *when* to ask
+MovementRules, live here - the one place responsible for turning user
+input into board changes.
 """
 
 from dataclasses import dataclass
 
-from config.settings import CELL_SIZE_PX, MOVE_DURATION_PER_CELL_MS
+from config.settings import CELL_SIZE_PX, MOVE_DURATION_PER_CELL_MS, JUMP_DURATION_MS
 from domain.board import EMPTY_TOKEN
 from domain.piece_token import color_of, type_of
 
@@ -26,7 +27,15 @@ class _PendingMove:
     to_row: int
     to_col: int
     complete_at_ms: int
-    mover_token: str  # captured at scheduling time - see _settle_completed_moves
+    mover_token: str  # captured at scheduling time - see _apply_if_still_valid
+
+
+@dataclass
+class _AirborneJump:
+    row: int
+    col: int
+    token: str
+    land_at_ms: int
 
 
 class GameEngine:
@@ -36,6 +45,7 @@ class GameEngine:
         self._movement_rules = movement_rules
         self._selected = None  # (row, col) or None
         self._pending_moves = []
+        self._airborne = []
         self._game_over = False
 
     def board(self):
@@ -48,9 +58,7 @@ class GameEngine:
         if self._game_over:
             return
 
-        col = x_px // CELL_SIZE_PX
-        row = y_px // CELL_SIZE_PX
-
+        row, col = self._cell_at(x_px, y_px)
         if not self._board.in_bounds(row, col):
             return
 
@@ -59,9 +67,8 @@ class GameEngine:
         if self._selected is None:
             # A piece already mid-route cannot be selected - this is what
             # makes redirecting an in-flight piece impossible. Once it
-            # settles, _settle_completed_moves() removes its pending
-            # entry and it becomes selectable again immediately - no
-            # separate cooldown mechanism exists or is needed.
+            # settles, its pending entry is removed and it becomes
+            # selectable again immediately - no separate cooldown exists.
             if token != EMPTY_TOKEN and not self._has_pending_move_from(row, col):
                 self._selected = (row, col)
             return
@@ -75,23 +82,45 @@ class GameEngine:
 
         self._try_request_move(self._selected, (row, col), selected_token)
 
+    def jump(self, x_px, y_px):
+        if self._game_over:
+            return
+
+        row, col = self._cell_at(x_px, y_px)
+        if not self._board.in_bounds(row, col):
+            return
+
+        token = self._board.get(row, col)
+        if token == EMPTY_TOKEN:
+            return
+        if self._has_pending_move_from(row, col):
+            return  # a moving piece cannot jump
+        if self._is_airborne(row, col):
+            return  # ASSUMPTION: already-airborne piece cannot re-jump; not stated explicitly
+
+        land_at = self._clock.now() + JUMP_DURATION_MS
+        self._airborne.append(_AirborneJump(row, col, token, land_at))
+
     def wait(self, ms):
         if self._game_over:
             return
         self._clock.advance(ms)
         self._settle_completed_moves()
+        self._land_completed_jumps()
+
+    @staticmethod
+    def _cell_at(x_px, y_px):
+        return y_px // CELL_SIZE_PX, x_px // CELL_SIZE_PX
 
     def _has_pending_move_from(self, row, col):
         return any(
             move.from_row == row and move.from_col == col for move in self._pending_moves
         )
 
+    def _is_airborne(self, row, col):
+        return any(jump.row == row and jump.col == col for jump in self._airborne)
+
     def _has_opposing_color_in_flight(self, mover_color):
-        # Read from the stored mover_token, not the board - the board at a
-        # pending move's origin cell still shows the piece until it
-        # settles, but the *pending move's own record* is the reliable
-        # source of "whose move is this", independent of anything else
-        # that might change on the board in the meantime.
         return any(color_of(move.mover_token) != mover_color for move in self._pending_moves)
 
     def _try_request_move(self, source, destination, selected_token):
@@ -100,17 +129,15 @@ class GameEngine:
         if self._has_opposing_color_in_flight(mover_color):
             # Opposite colors cannot move concurrently: while any piece of
             # the other color is still in transit, a new move cannot be
-            # scheduled. Same-color pieces are unaffected and can still
-            # move concurrently with each other.
+            # scheduled. Same-color pieces are unaffected.
             return
 
         is_legal = self._movement_rules.is_legal(
             selected_token, self._board, source[0], source[1], destination[0], destination[1]
         )
         if not is_legal:
-            # ASSUMPTION: an illegal-shape click is treated as a no-op for
-            # the whole click, so the current selection is kept - the user
-            # gets to try a different destination.
+            # ASSUMPTION: an illegal-shape click is a no-op for the whole
+            # click, so the current selection is kept.
             return
 
         complete_at = self._clock.now() + self._move_duration_ms(source, destination)
@@ -138,7 +165,7 @@ class GameEngine:
                 continue
 
             if not self._apply_if_still_valid(move):
-                continue  # cancelled - piece captured mid-flight, or destination now friendly
+                continue  # cancelled - mover gone, friendly destination, or captured mid-air
 
             if self._game_over:
                 self._pending_moves = []
@@ -146,20 +173,32 @@ class GameEngine:
 
         self._pending_moves = still_pending
 
+    def _land_completed_jumps(self):
+        now = self._clock.now()
+        self._airborne = [jump for jump in self._airborne if jump.land_at_ms > now]
+        # No board change on landing - the piece was on this cell the
+        # whole time. Simply falling out of self._airborne is "landing".
+
     def _apply_if_still_valid(self, move):
         # The piece that requested this move might no longer be at its
         # origin square (e.g. it was captured there by another move that
-        # settled earlier in this same batch). Re-reading the board here,
-        # instead of trusting move.mover_token blindly, is what makes this
-        # safe - board.apply_move() only moves whatever token is actually
-        # present.
+        # settled earlier in this same batch).
         current_token = self._board.get(move.from_row, move.from_col)
         if current_token != move.mover_token:
             return False  # the mover itself is gone - nothing to move
 
         target_token = self._board.get(move.to_row, move.to_col)
+
         if target_token != EMPTY_TOKEN and color_of(target_token) == color_of(move.mover_token):
-            return False  # destination is now friendly-occupied - cancel silently
+            return False  # destination is friendly-occupied - cancel silently
+
+        if target_token != EMPTY_TOKEN and self._is_airborne(move.to_row, move.to_col):
+            # The defender is airborne and the arriver is an enemy (the
+            # friendly case was already handled above): the airborne
+            # piece captures the arriver instead of being captured. The
+            # arriver is simply removed; the airborne piece is untouched.
+            self._board.remove(move.from_row, move.from_col)
+            return True
 
         self._board.apply_move(move.from_row, move.from_col, move.to_row, move.to_col)
         self._maybe_promote(move.mover_token, move.to_row, move.to_col)

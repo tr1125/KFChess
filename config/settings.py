@@ -19,3 +19,8 @@ CELL_SIZE_PX = 100
 # test disagrees, this is the one formula (in engine/game_engine.py) to
 # revisit for knight-specific handling.
 MOVE_DURATION_PER_CELL_MS = 1000
+
+# A jump keeps the piece on its own cell but makes it "airborne" for this
+# long. If an enemy's move lands on that cell during the window, the
+# airborne piece captures the arriving enemy instead of being captured.
+JUMP_DURATION_MS = 1000

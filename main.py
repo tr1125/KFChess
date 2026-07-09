@@ -10,6 +10,7 @@ SECTION_BOARD = "Board:"
 SECTION_COMMANDS = "Commands:"
 
 CMD_CLICK = "click"
+CMD_JUMP = "jump"
 CMD_WAIT = "wait"
 CMD_PRINT_BOARD = "print board"
 
@@ -44,6 +45,8 @@ def _dispatch(command_line, engine, out):
 
     if command == CMD_CLICK and len(parts) == 3:
         engine.click(int(parts[1]), int(parts[2]))
+    elif command == CMD_JUMP and len(parts) == 3:
+        engine.jump(int(parts[1]), int(parts[2]))
     elif command == CMD_WAIT and len(parts) == 2:
         engine.wait(int(parts[1]))
     elif command_line == CMD_PRINT_BOARD:
