@@ -12,7 +12,10 @@ SECTION_COMMANDS = "Commands:"
 CMD_CLICK = "click"
 CMD_JUMP = "jump"
 CMD_WAIT = "wait"
+CMD_PROMOTE = "promote"
 CMD_PRINT_BOARD = "print board"
+CMD_PRINT_SCORE = "print score"
+CMD_PRINT_PROMOTIONS = "print promotions"
 
 
 def split_sections(text):
@@ -49,8 +52,17 @@ def _dispatch(command_line, engine, out):
         engine.jump(int(parts[1]), int(parts[2]))
     elif command == CMD_WAIT and len(parts) == 2:
         engine.wait(int(parts[1]))
+    elif command == CMD_PROMOTE and len(parts) == 4:
+        engine.choose_promotion(int(parts[1]), int(parts[2]), parts[3])
     elif command_line == CMD_PRINT_BOARD:
         out.write(to_canonical(engine.board()) + "\n")
+    elif command_line == CMD_PRINT_SCORE:
+        scores = engine.scores()
+        out.write(f"w {scores['w']} b {scores['b']}\n")
+    elif command_line == CMD_PRINT_PROMOTIONS:
+        for pending in engine.pending_promotions():
+            choices = "".join(pending["choices"])
+            out.write(f"{pending['row']} {pending['col']} {pending['color']} {choices}\n")
 
 
 def run(text, out):

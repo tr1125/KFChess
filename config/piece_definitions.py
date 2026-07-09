@@ -9,6 +9,15 @@ to a dict keyed by "w"/"b" - MovementRules checks for this automatically.
 
 from domain.movement.patterns import StepPattern, SlidePattern, PawnDoubleStepPattern
 from domain.movement.requirement import ANY, MOVE_ONLY, CAPTURE_ONLY
+from domain.promotion_rule import PromotionRule
+from domain.piece_token import (
+    KING_TYPE,
+    QUEEN_TYPE,
+    ROOK_TYPE,
+    BISHOP_TYPE,
+    KNIGHT_TYPE,
+    PAWN_TYPE,
+)
 
 _ORTHOGONAL_DIRECTIONS = [(-1, 0), (1, 0), (0, -1), (0, 1)]
 _DIAGONAL_DIRECTIONS = [(-1, -1), (-1, 1), (1, -1), (1, 1)]
@@ -34,13 +43,41 @@ _BLACK_PAWN_CAPTURES = [(1, -1), (1, 1)]
 _WHITE_PAWN_START_ROW = lambda board: board.height - 1
 _BLACK_PAWN_START_ROW = lambda board: 0
 
+# Standard chess piece values, used for score display. The king's value
+# is never actually awarded - capturing it ends the game first - but 0
+# keeps the lookup total for every piece type.
+PIECE_VALUES = {
+    KING_TYPE: 0,
+    QUEEN_TYPE: 9,
+    ROOK_TYPE: 5,
+    BISHOP_TYPE: 3,
+    KNIGHT_TYPE: 3,
+    PAWN_TYPE: 1,
+}
+
+# Every piece type in `choices` a promotion may become. Kept separate
+# from PROMOTION_RULES below so multiple rules can share it.
+_STANDARD_PROMOTION_CHOICES = (QUEEN_TYPE, ROOK_TYPE, BISHOP_TYPE, KNIGHT_TYPE)
+
+# Which piece becomes eligible to promote, on which rank, and what it
+# may become. To change the trigger (e.g. a knight promoting on the 4th
+# rank instead) add/edit an entry here - PromotionRules and MoveResolver
+# never hardcode a piece type or rank, so no other file needs to change.
+# `rank` may be a fixed row index or a callable(board) -> row index for
+# ranks defined relative to board size, exactly like the pawn start-row
+# lambdas above.
+PROMOTION_RULES = [
+    PromotionRule(PAWN_TYPE, "w", 0, _STANDARD_PROMOTION_CHOICES),
+    PromotionRule(PAWN_TYPE, "b", lambda board: board.height - 1, _STANDARD_PROMOTION_CHOICES),
+]
+
 PIECE_MOVEMENT_PATTERNS = {
-    "K": [(StepPattern(_KING_OFFSETS), ANY)],
-    "Q": [(SlidePattern(_ORTHOGONAL_DIRECTIONS + _DIAGONAL_DIRECTIONS), ANY)],
-    "R": [(SlidePattern(_ORTHOGONAL_DIRECTIONS), ANY)],
-    "B": [(SlidePattern(_DIAGONAL_DIRECTIONS), ANY)],
-    "N": [(StepPattern(_KNIGHT_OFFSETS), ANY)],
-    "P": {
+    KING_TYPE: [(StepPattern(_KING_OFFSETS), ANY)],
+    QUEEN_TYPE: [(SlidePattern(_ORTHOGONAL_DIRECTIONS + _DIAGONAL_DIRECTIONS), ANY)],
+    ROOK_TYPE: [(SlidePattern(_ORTHOGONAL_DIRECTIONS), ANY)],
+    BISHOP_TYPE: [(SlidePattern(_DIAGONAL_DIRECTIONS), ANY)],
+    KNIGHT_TYPE: [(StepPattern(_KNIGHT_OFFSETS), ANY)],
+    PAWN_TYPE: {
         "w": [
             (StepPattern(_WHITE_PAWN_FORWARD), MOVE_ONLY),
             (StepPattern(_WHITE_PAWN_CAPTURES), CAPTURE_ONLY),

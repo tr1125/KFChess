@@ -344,8 +344,12 @@ def test_move_commands_ignored_after_game_over():
 
 
 # --- Iteration 9: pawn promotion and two-square initial push ---
+#
+# Promotion is no longer automatic: reaching the far rank pauses the
+# whole engine (click/jump/wait become no-ops) until a "promote" command
+# supplies the piece to promote into.
 
-def test_white_pawn_reaching_row_zero_becomes_queen():
+def test_white_pawn_reaching_row_zero_awaits_user_choice_instead_of_auto_queening():
     input_text = (
         "Board:\n"
         "wK . . bK\n"
@@ -357,11 +361,87 @@ def test_white_pawn_reaching_row_zero_becomes_queen():
         "wait 1000\n"
         "print board\n"
     )
+    expected = "wK wP . bK\n. . . .\n. . . .\n"
+    assert run_and_capture(input_text) == expected
+
+
+def test_white_pawn_promotes_to_the_chosen_piece_once_selected():
+    input_text = (
+        "Board:\n"
+        "wK . . bK\n"
+        ". wP . .\n"
+        ". . . .\n"
+        "Commands:\n"
+        "click 150 150\n"
+        "click 150 50\n"
+        "wait 1000\n"
+        "promote 0 1 Q\n"
+        "print board\n"
+    )
     expected = "wK wQ . bK\n. . . .\n. . . .\n"
     assert run_and_capture(input_text) == expected
 
 
-def test_black_pawn_reaching_last_row_becomes_queen():
+def test_engine_is_paused_while_a_promotion_choice_is_pending():
+    input_text = (
+        "Board:\n"
+        "wK . . bK\n"
+        ". wP . bR\n"
+        ". . . .\n"
+        "Commands:\n"
+        "click 150 150\n"
+        "click 150 50\n"
+        "wait 1000\n"
+        "click 350 150\n"
+        "click 250 150\n"
+        "wait 2000\n"
+        "print board\n"
+    )
+    # The bR click/move attempt is a no-op: the engine paused for wP's
+    # pending promotion before the bR move could ever be scheduled.
+    expected = "wK wP . bK\n. . . bR\n. . . .\n"
+    assert run_and_capture(input_text) == expected
+
+
+def test_engine_resumes_after_promotion_choice_is_made():
+    input_text = (
+        "Board:\n"
+        "wK . . bK\n"
+        ". wP . bR\n"
+        ". . . .\n"
+        "Commands:\n"
+        "click 150 150\n"
+        "click 150 50\n"
+        "wait 1000\n"
+        "promote 0 1 N\n"
+        "click 350 150\n"
+        "click 250 150\n"
+        "wait 2000\n"
+        "print board\n"
+    )
+    expected = "wK wN . bK\n. . bR .\n. . . .\n"
+    assert run_and_capture(input_text) == expected
+
+
+def test_promote_with_invalid_choice_is_a_no_op_and_stays_paused():
+    input_text = (
+        "Board:\n"
+        "wK . . bK\n"
+        ". wP . .\n"
+        ". . . .\n"
+        "Commands:\n"
+        "click 150 150\n"
+        "click 150 50\n"
+        "wait 1000\n"
+        "promote 0 1 K\n"
+        "print board\n"
+        "print promotions\n"
+    )
+    expected = "wK wP . bK\n. . . .\n. . . .\n0 1 w QRBN\n"
+    assert run_and_capture(input_text) == expected
+
+
+def test_black_pawn_reaching_last_row_awaits_user_choice_instead_of_auto_queening():
     input_text = (
         "Board:\n"
         "wK . . bK\n"
@@ -374,7 +454,25 @@ def test_black_pawn_reaching_last_row_becomes_queen():
         "wait 1000\n"
         "print board\n"
     )
-    expected = "wK . . bK\n. . . .\n. . . .\n. bQ . .\n"
+    expected = "wK . . bK\n. . . .\n. . . .\n. bP . .\n"
+    assert run_and_capture(input_text) == expected
+
+
+def test_black_pawn_promotes_to_the_chosen_piece_once_selected():
+    input_text = (
+        "Board:\n"
+        "wK . . bK\n"
+        ". . . .\n"
+        ". bP . .\n"
+        ". . . .\n"
+        "Commands:\n"
+        "click 150 250\n"
+        "click 150 350\n"
+        "wait 1000\n"
+        "promote 3 1 R\n"
+        "print board\n"
+    )
+    expected = "wK . . bK\n. . . .\n. . . .\n. bR . .\n"
     assert run_and_capture(input_text) == expected
 
 

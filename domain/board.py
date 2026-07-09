@@ -38,15 +38,6 @@ class Board:
         self._rows[from_row][from_col] = EMPTY_TOKEN
         self._rows[to_row][to_col] = token
 
-    def clear(self, row, col):
-        """Remove whatever token is at (row, col), leaving it empty.
-
-        Used when a piece is captured mid-flight (e.g. by an airborne
-        defender) and never lands anywhere - unlike apply_move, there is
-        no destination to place it at.
-        """
-        self._rows[row][col] = EMPTY_TOKEN
-
     def promote(self, row, col, token):
         """Replace the token at (row, col) with a new one (pawn promotion)."""
         self._rows[row][col] = token
