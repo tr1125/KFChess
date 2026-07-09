@@ -373,3 +373,83 @@ def test_move_commands_ignored_after_game_over():
     # wR sits at (0,2) from the capture; wK remains at (1,1) unmoved.
     expected = ". . wR\n. wK .\n"
     assert run_and_capture(input_text) == expected
+
+
+# --- Iteration 9: pawn promotion and two-square initial push ---
+
+def test_white_pawn_reaching_row_zero_becomes_queen():
+    """A white pawn that settles on row 0 is immediately replaced by a
+    white queen on the same square."""
+    input_text = (
+        "Board:\n"
+        "wK . . bK\n"
+        ". wP . .\n"
+        ". . . .\n"
+        "Commands:\n"
+        "click 150 150\n"  # select wP at (row=1, col=1)
+        "click 150 50\n"   # move one step to (row=0, col=1): 1 cell, 1000ms
+        "wait 1000\n"
+        "print board\n"
+    )
+    expected = "wK wQ . bK\n. . . .\n. . . .\n"
+    assert run_and_capture(input_text) == expected
+
+
+def test_black_pawn_reaching_last_row_becomes_queen():
+    """A black pawn that settles on the last row is immediately replaced by
+    a black queen on the same square."""
+    input_text = (
+        "Board:\n"
+        "wK . . bK\n"
+        ". . . .\n"
+        ". bP . .\n"
+        ". . . .\n"
+        "Commands:\n"
+        "click 150 250\n"  # select bP at (row=2, col=1)
+        "click 150 350\n"  # move one step to (row=3, col=1): 1 cell, 1000ms
+        "wait 1000\n"
+        "print board\n"
+    )
+    expected = "wK . . bK\n. . . .\n. . . .\n. bQ . .\n"
+    assert run_and_capture(input_text) == expected
+
+
+def test_white_pawn_two_square_push_from_start_row():
+    """A white pawn on its start row (the board's last row, height - 1)
+    can advance two squares if the path is clear."""
+    input_text = (
+        "Board:\n"
+        "wK . . bK\n"
+        ". . . .\n"
+        ". . . .\n"
+        ". . . .\n"
+        ". wP . .\n"
+        "Commands:\n"
+        "click 150 450\n"  # select wP at (row=4, col=1); start row = height-1 = 4
+        "click 150 250\n"  # move two squares to (row=2, col=1): 2 cells, 2000ms
+        "wait 2000\n"
+        "print board\n"
+    )
+    expected = "wK . . bK\n. . . .\n. wP . .\n. . . .\n. . . .\n"
+    assert run_and_capture(input_text) == expected
+
+
+def test_white_pawn_two_square_push_blocked_by_piece_on_path():
+    """A two-square push is illegal when the intermediate square is
+    occupied - the move should never be scheduled."""
+    input_text = (
+        "Board:\n"
+        "wK . . bK\n"
+        ". . . .\n"
+        ". . . .\n"
+        ". bN . .\n"
+        ". wP . .\n"
+        "Commands:\n"
+        "click 150 450\n"  # select wP at (row=4, col=1); start row = height-1 = 4
+        "click 150 250\n"  # attempt two-square push - blocked by bN at row=3
+        "wait 3000\n"
+        "print board\n"
+    )
+    # wP must not move - illegal push through blocker.
+    expected = "wK . . bK\n. . . .\n. . . .\n. bN . .\n. wP . .\n"
+    assert run_and_capture(input_text) == expected

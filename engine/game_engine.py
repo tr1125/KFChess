@@ -15,6 +15,8 @@ from domain.board import EMPTY_TOKEN
 from domain.piece_token import color_of, type_of
 
 KING_TYPE = "K"
+PAWN_TYPE = "P"
+QUEEN_TYPE = "Q"
 
 
 @dataclass
@@ -24,6 +26,7 @@ class _PendingMove:
     to_row: int
     to_col: int
     complete_at_ms: int
+    mover_token: str  # captured at scheduling time - see _settle_completed_moves
 
 
 class GameEngine:
@@ -83,14 +86,22 @@ class GameEngine:
             move.from_row == row and move.from_col == col for move in self._pending_moves
         )
 
-    def _has_pending_move_by_opponent(self, color):
-        return any(
-            color_of(self._board.get(move.from_row, move.from_col)) != color
-            for move in self._pending_moves
-        )
+    def _has_opposing_color_in_flight(self, mover_color):
+        # Read from the stored mover_token, not the board - the board at a
+        # pending move's origin cell still shows the piece until it
+        # settles, but the *pending move's own record* is the reliable
+        # source of "whose move is this", independent of anything else
+        # that might change on the board in the meantime.
+        return any(color_of(move.mover_token) != mover_color for move in self._pending_moves)
 
     def _try_request_move(self, source, destination, selected_token):
-        if self._has_pending_move_by_opponent(color_of(selected_token)):
+        mover_color = color_of(selected_token)
+
+        if self._has_opposing_color_in_flight(mover_color):
+            # Opposite colors cannot move concurrently: while any piece of
+            # the other color is still in transit, a new move cannot be
+            # scheduled. Same-color pieces are unaffected and can still
+            # move concurrently with each other.
             return
 
         is_legal = self._movement_rules.is_legal(
@@ -99,13 +110,14 @@ class GameEngine:
         if not is_legal:
             # ASSUMPTION: an illegal-shape click is treated as a no-op for
             # the whole click, so the current selection is kept - the user
-            # gets to try a different destination. Not covered by this
-            # iteration's spec text; revisit if a test says otherwise.
+            # gets to try a different destination.
             return
 
         complete_at = self._clock.now() + self._move_duration_ms(source, destination)
         self._pending_moves.append(
-            _PendingMove(source[0], source[1], destination[0], destination[1], complete_at)
+            _PendingMove(
+                source[0], source[1], destination[0], destination[1], complete_at, selected_token
+            )
         )
         self._selected = None
 
@@ -119,25 +131,49 @@ class GameEngine:
     def _settle_completed_moves(self):
         now = self._clock.now()
         still_pending = []
+
         for move in self._pending_moves:
-            if move.complete_at_ms <= now:
-                mover_token = self._board.get(move.from_row, move.from_col)
-                target_token = self._board.get(move.to_row, move.to_col)
-                # Cancel the move if a friendly piece now occupies the
-                # destination (landed there first, or was already sitting
-                # there).  Enemy pieces and empty squares are fine - an
-                # enemy means a capture, which apply_move handles by
-                # overwriting.  The mover token stays at its origin square.
-                if (target_token == EMPTY_TOKEN or
-                        color_of(target_token) != color_of(mover_token)):
-                    self._board.apply_move(
-                        move.from_row, move.from_col, move.to_row, move.to_col
-                    )
-                    if target_token != EMPTY_TOKEN and type_of(target_token) == KING_TYPE:
-                        self._game_over = True
-                        self._pending_moves = []
-                        return
-                # else: destination is friendly - silently discard the move.
-            else:
+            if move.complete_at_ms > now:
                 still_pending.append(move)
+                continue
+
+            if not self._apply_if_still_valid(move):
+                continue  # cancelled - piece captured mid-flight, or destination now friendly
+
+            if self._game_over:
+                self._pending_moves = []
+                return
+
         self._pending_moves = still_pending
+
+    def _apply_if_still_valid(self, move):
+        # The piece that requested this move might no longer be at its
+        # origin square (e.g. it was captured there by another move that
+        # settled earlier in this same batch). Re-reading the board here,
+        # instead of trusting move.mover_token blindly, is what makes this
+        # safe - board.apply_move() only moves whatever token is actually
+        # present.
+        current_token = self._board.get(move.from_row, move.from_col)
+        if current_token != move.mover_token:
+            return False  # the mover itself is gone - nothing to move
+
+        target_token = self._board.get(move.to_row, move.to_col)
+        if target_token != EMPTY_TOKEN and color_of(target_token) == color_of(move.mover_token):
+            return False  # destination is now friendly-occupied - cancel silently
+
+        self._board.apply_move(move.from_row, move.from_col, move.to_row, move.to_col)
+        self._maybe_promote(move.mover_token, move.to_row, move.to_col)
+
+        if target_token != EMPTY_TOKEN and type_of(target_token) == KING_TYPE:
+            self._game_over = True
+
+        return True
+
+    def _maybe_promote(self, mover_token, to_row, to_col):
+        """Promote a pawn that has reached the far rank to a queen."""
+        if type_of(mover_token) != PAWN_TYPE:
+            return
+        color = color_of(mover_token)
+        promotion_row = 0 if color == "w" else self._board.height - 1
+        if to_row == promotion_row:
+            self._board.promote(to_row, to_col, color + QUEEN_TYPE)

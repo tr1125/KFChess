@@ -1,7 +1,7 @@
 """Generic movement pattern primitives.
 
-These two building blocks are all a piece's movement is made from.
-Adding a new piece - standard or a user-defined custom one later - means
+These building blocks are what a piece's movement is made from. Adding
+a new piece - standard or a user-defined custom one later - means
 adding a config entry that composes these; it never means writing a new
 pattern class or touching engine code.
 """
@@ -52,3 +52,35 @@ class SlidePattern:
                 target_row += delta_row
                 target_col += delta_col
         return results
+
+
+class PawnDoubleStepPattern:
+    """A pawn's two-square initial push. Legal only when the pawn is on
+    its start row AND the square immediately in front is empty (path must
+    be clear). Whether the destination itself is empty is enforced by
+    MovementRules via MOVE_ONLY, not here.
+
+    forward_delta: (delta_row, delta_col) for one step forward.
+    start_row_fn:  callable(board) -> int - the row the pawn must occupy
+                   to be eligible for this move.
+    """
+
+    def __init__(self, forward_delta, start_row_fn):
+        self._forward_delta = forward_delta
+        self._start_row_fn = start_row_fn
+
+    def destinations(self, board, row, col):
+        if row != self._start_row_fn(board):
+            return []
+
+        delta_row, delta_col = self._forward_delta
+        step_row, step_col = row + delta_row, col + delta_col
+        if not board.in_bounds(step_row, step_col):
+            return []
+        if board.get(step_row, step_col) != EMPTY_TOKEN:
+            return []  # path is blocked
+
+        dest_row, dest_col = step_row + delta_row, step_col + delta_col
+        if not board.in_bounds(dest_row, dest_col):
+            return []
+        return [(dest_row, dest_col)]

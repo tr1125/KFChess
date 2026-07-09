@@ -206,11 +206,14 @@ def test_white_pawn_moves_one_cell_forward_is_legal():
     assert make_rules().is_legal("wP", board, 1, 1, 0, 1)
 
 
-def test_white_pawn_cannot_move_two_cells():
+def test_white_pawn_cannot_move_two_cells_from_non_start_row():
+    # White start row on a 4-row board is row 3 (height - 1); this pawn
+    # is on row 2, so a 2-cell push must be illegal.
     rows = [
         [".", ".", "."],
         [".", ".", "."],
         [".", "wP", "."],
+        [".", ".", "."],
     ]
     board = board_from(rows)
     assert not make_rules().is_legal("wP", board, 2, 1, 0, 1)
@@ -266,14 +269,16 @@ def test_black_pawn_moves_one_cell_forward_is_legal():
     assert make_rules().is_legal("bP", board, 1, 1, 2, 1)
 
 
-def test_black_pawn_cannot_move_two_cells():
+def test_black_pawn_cannot_move_two_cells_from_non_start_row():
+    # Black start row is always row 0; this pawn is on row 1.
     rows = [
+        [".", ".", "."],
         [".", "bP", "."],
         [".", ".", "."],
         [".", ".", "."],
     ]
     board = board_from(rows)
-    assert not make_rules().is_legal("bP", board, 0, 1, 2, 1)
+    assert not make_rules().is_legal("bP", board, 1, 1, 3, 1)
 
 
 def test_black_pawn_captures_diagonally():
@@ -294,3 +299,66 @@ def test_black_pawn_cannot_move_diagonally_to_empty_cell():
     ]
     board = board_from(rows)
     assert not make_rules().is_legal("bP", board, 0, 1, 1, 0)
+
+
+# --- Pawn: two-square initial push ---
+#
+# Confirmed by VPL: white start row = board.height - 1 (the last row),
+# black start row = 0 (the first row) - the board's literal edge rows,
+# not one row in from the edge as in real 8x8 chess. The path (the
+# intermediate cell) must be empty.
+
+def test_white_pawn_can_move_two_cells_from_start_row():
+    # 4-row board: white start row is row 3 (height - 1).
+    rows = [
+        [".", ".", "."],
+        [".", ".", "."],
+        [".", ".", "."],
+        [".", "wP", "."],
+    ]
+    board = board_from(rows)
+    assert make_rules().is_legal("wP", board, 3, 1, 1, 1)
+
+
+def test_white_pawn_two_cell_move_blocked_by_piece_on_path():
+    rows = [
+        [".", ".", "."],
+        [".", ".", "."],
+        [".", "bR", "."],
+        [".", "wP", "."],
+    ]
+    board = board_from(rows)
+    assert not make_rules().is_legal("wP", board, 3, 1, 1, 1)
+
+
+def test_white_pawn_two_cell_move_destination_occupied_is_illegal():
+    rows = [
+        [".", ".", "."],
+        [".", "bN", "."],
+        [".", ".", "."],
+        [".", "wP", "."],
+    ]
+    board = board_from(rows)
+    assert not make_rules().is_legal("wP", board, 3, 1, 1, 1)
+
+
+def test_black_pawn_can_move_two_cells_from_start_row():
+    rows = [
+        [".", "bP", "."],
+        [".", ".", "."],
+        [".", ".", "."],
+        [".", ".", "."],
+    ]
+    board = board_from(rows)
+    assert make_rules().is_legal("bP", board, 0, 1, 2, 1)
+
+
+def test_black_pawn_two_cell_move_blocked_by_piece_on_path():
+    rows = [
+        [".", "bP", "."],
+        [".", "wN", "."],
+        [".", ".", "."],
+        [".", ".", "."],
+    ]
+    board = board_from(rows)
+    assert not make_rules().is_legal("bP", board, 0, 1, 2, 1)

@@ -38,6 +38,10 @@ class Board:
         self._rows[from_row][from_col] = EMPTY_TOKEN
         self._rows[to_row][to_col] = token
 
+    def promote(self, row, col, token):
+        """Replace the token at (row, col) with a new one (pawn promotion)."""
+        self._rows[row][col] = token
+
     def rows(self):
         """Return a defensive copy so callers can't mutate internal state."""
         return [list(row) for row in self._rows]
