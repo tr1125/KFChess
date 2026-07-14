@@ -1,0 +1,52 @@
+"""The Piece entity every other layer shares instead of a bare string
+token, and the piece-type/color constants used throughout.
+"""
+
+import itertools
+from dataclasses import dataclass, field
+from enum import Enum, auto
+
+KING_TYPE = "K"
+QUEEN_TYPE = "Q"
+ROOK_TYPE = "R"
+BISHOP_TYPE = "B"
+KNIGHT_TYPE = "N"
+PAWN_TYPE = "P"
+
+WHITE = "w"
+BLACK = "b"
+
+_id_counter = itertools.count(1)
+
+
+class PieceState(Enum):
+    IDLE = auto()  # not currently in transit
+    MOVING = auto()  # has a pending (in-flight) move - see MotionTracker
+    CAPTURES = auto()  # airborne mid-jump - captures whatever lands on its cell
+
+
+@dataclass(eq=False)
+class Piece:
+    """A single piece on the board. `id` is a runtime identity (not
+    persisted through the text format - reparsing a board mints fresh
+    ids), used so two same-kind-same-color pieces are never confused
+    with each other (see RealTimeArbiter). `cell` is written only by
+    Board, in the same method that moves the piece on the grid, so the
+    two can never drift apart. `state` is written only by MotionTracker,
+    as a side effect of scheduling/settling a move or jump.
+
+    Deliberately `eq=False`: identity equality is what every caller
+    actually wants (RealTimeArbiter asks "is this the same piece still
+    here", not "is there a piece here with the same fields") - the
+    dataclass-generated value equality would compare `cell`/`state` too
+    and give the wrong answer for that question.
+    """
+
+    color: str
+    kind: str
+    cell: object = None  # Position
+    state: PieceState = field(default=PieceState.IDLE)
+    id: int = field(default_factory=lambda: next(_id_counter))
+
+    def __str__(self):
+        return f"{self.color}{self.kind}"

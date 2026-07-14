@@ -1,0 +1,17 @@
+[run]
+branch = True
+source = kungfu_chess
+omit =
+    */tests/*
+    */test_*.py
+    */__pycache__/*
+    */.venv/*
+
+[report]
+exclude_lines =
+    pragma: no cover
+    raise NotImplementedError
+    if __name__ == .__main__.:
+
+[html]
+directory = htmlcov

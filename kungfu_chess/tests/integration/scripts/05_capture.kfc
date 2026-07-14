@@ -1,0 +1,11 @@
+Board:
+wR . bN
+Commands:
+click 50 50
+click 250 50
+wait 2000
+print board
+print score
+Expected:
+. . wR
+w 3 b 0
