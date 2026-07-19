@@ -35,6 +35,12 @@ MOVE_DURATION_PER_CELL_MS = 1000
 # airborne piece captures the arriving enemy instead of being captured.
 JUMP_DURATION_MS = 1000
 
+# After a move settles or a jump lands, the piece rests and cannot be
+# selected again until the rest elapses - long after a move, short after
+# a jump.
+LONG_REST_DURATION_MS = 1000
+SHORT_REST_DURATION_MS = 500
+
 
 def _dispatch(command, controller, engine, out):
     if command.name == CMD_CLICK:
@@ -71,6 +77,8 @@ def build_engine(board):
         rule_engine,
         move_duration_per_cell_ms=MOVE_DURATION_PER_CELL_MS,
         jump_duration_ms=JUMP_DURATION_MS,
+        long_rest_duration_ms=LONG_REST_DURATION_MS,
+        short_rest_duration_ms=SHORT_REST_DURATION_MS,
     )
 
 

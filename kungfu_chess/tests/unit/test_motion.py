@@ -122,7 +122,7 @@ def test_schedule_jump_marks_the_piece_capturing():
     piece = make_piece()
     tracker = MotionTracker()
     tracker.schedule_jump(Position(0, 0), piece=piece, land_at_ms=100)
-    assert piece.state == PieceState.CAPTURES
+    assert piece.state == PieceState.AIRBORNE
 
 
 def test_land_due_jumps_resets_the_piece_to_idle():
@@ -131,6 +131,16 @@ def test_land_due_jumps_resets_the_piece_to_idle():
     tracker.schedule_jump(Position(0, 0), piece=piece, land_at_ms=100)
     tracker.land_due_jumps(100)
     assert piece.state == PieceState.IDLE
+
+
+def test_land_due_jumps_returns_the_landed_jump():
+    piece = make_piece()
+    tracker = MotionTracker()
+    tracker.schedule_jump(Position(0, 0), piece=piece, land_at_ms=100)
+    landed = tracker.land_due_jumps(100)
+    assert len(landed) == 1
+    assert landed[0].piece is piece
+    assert landed[0].position == Position(0, 0)
 
 
 def test_clear_jumps_resets_the_piece_to_idle():
@@ -174,3 +184,53 @@ def test_clear_jumps_removes_all_airborne_jumps():
     tracker.schedule_jump(Position(0, 0), piece=make_piece(kind="N"), land_at_ms=100)
     tracker.clear_jumps()
     assert not tracker.is_airborne(Position(0, 0))
+
+
+# --- MotionTracker: rests ---
+
+def test_begin_rest_marks_the_piece_with_the_given_state():
+    piece = make_piece()
+    tracker = MotionTracker()
+    tracker.begin_rest(piece, PieceState.LONG_REST, rest_over_ms=100)
+    assert piece.state == PieceState.LONG_REST
+
+
+def test_wake_due_rests_wakes_rest_exactly_at_expiry():
+    piece = make_piece()
+    tracker = MotionTracker()
+    tracker.begin_rest(piece, PieceState.LONG_REST, rest_over_ms=100)
+    tracker.wake_due_rests(100)
+    assert piece.state == PieceState.IDLE
+
+
+def test_wake_due_rests_keeps_piece_resting_before_expiry():
+    piece = make_piece()
+    tracker = MotionTracker()
+    tracker.begin_rest(piece, PieceState.LONG_REST, rest_over_ms=100)
+    tracker.wake_due_rests(99)
+    assert piece.state == PieceState.LONG_REST
+
+
+def test_wake_due_rests_only_wakes_due_rests_leaving_others_resting():
+    piece_a = make_piece()
+    piece_b = make_piece()
+    tracker = MotionTracker()
+    tracker.begin_rest(piece_a, PieceState.LONG_REST, rest_over_ms=100)
+    tracker.begin_rest(piece_b, PieceState.SHORT_REST, rest_over_ms=200)
+    tracker.wake_due_rests(100)
+    assert piece_a.state == PieceState.IDLE
+    assert piece_b.state == PieceState.SHORT_REST
+
+
+def test_clear_rests_resets_all_resting_pieces_to_idle():
+    piece_a = make_piece()
+    piece_b = make_piece()
+    tracker = MotionTracker()
+    tracker.begin_rest(piece_a, PieceState.LONG_REST, rest_over_ms=100)
+    tracker.begin_rest(piece_b, PieceState.SHORT_REST, rest_over_ms=200)
+    tracker.clear_rests()
+    assert piece_a.state == PieceState.IDLE
+    assert piece_b.state == PieceState.IDLE
+    tracker.wake_due_rests(1000)  # no-op: nothing left to wake
+    assert piece_a.state == PieceState.IDLE
+    assert piece_b.state == PieceState.IDLE

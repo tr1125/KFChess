@@ -22,8 +22,10 @@ _id_counter = itertools.count(1)
 class PieceState(Enum):
     IDLE = auto()  # not currently in transit
     MOVING = auto()  # has a pending (in-flight) move - see MotionTracker
-    CAPTURES = auto()  # airborne mid-jump - captures whatever lands on its cell
-
+    AIRBORNE = auto()  # airborne mid-jump - captures whatever lands on its cell
+    LONG_REST = auto() # has been moving and is now resting for a long time (see MotionTracker)
+    SHORT_REST = auto() # has been jumping and is now resting for a short time (see MotionTracker)
+    CAPTURED = auto()  # has been eaten by an enemy piece
 
 @dataclass(eq=False)
 class Piece:
@@ -50,3 +52,13 @@ class Piece:
 
     def __str__(self):
         return f"{self.color}{self.kind}"
+
+    def notation_prefix(self, origin_file, is_capture):
+        """The SAN move prefix for this piece: pawns are identified by
+        their origin file only on captures (and never by a letter), while
+        every other piece is identified by its kind letter, plus an "x"
+        on captures either way.
+        """
+        if self.kind == PAWN_TYPE:
+            return f"{origin_file}x" if is_capture else ""
+        return f"{self.kind}x" if is_capture else self.kind

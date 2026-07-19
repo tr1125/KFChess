@@ -25,7 +25,6 @@ credits a capture (rule_engine) looks up the value and passes it in.
 
 from dataclasses import dataclass
 
-from kungfu_chess.model.piece import PAWN_TYPE
 from kungfu_chess.model.position import square_name
 
 
@@ -76,15 +75,10 @@ class GameState:
         promoted_piece=None,
         ends_game=False,
     ):
-        piece_type = mover_piece.kind
         is_capture = captured_piece is not None
         destination = square_name(to_position, board.height)
-
-        if piece_type == PAWN_TYPE:
-            origin_file = square_name(from_position, board.height)[0]
-            prefix = f"{origin_file}x" if is_capture else ""
-        else:
-            prefix = f"{piece_type}x" if is_capture else piece_type
+        origin_file = square_name(from_position, board.height)[0]
+        prefix = mover_piece.notation_prefix(origin_file, is_capture)
 
         notation = f"{prefix}{destination}"
         if promoted_piece is not None:

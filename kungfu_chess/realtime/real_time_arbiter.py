@@ -8,7 +8,6 @@ state itself. Applying the consequences of a classification (recording
 history/score, moving pieces) is the rules layer's job, orchestrated by
 the engine.
 """
-
 from dataclasses import dataclass
 from enum import Enum, auto
 

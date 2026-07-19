@@ -14,12 +14,19 @@ due right now - it has no opinion about what settling should *do*
 the rules layer, orchestrated by the engine, which asks this class only
 scheduling questions.
 
-MotionTracker is also the sole writer of Piece.state: scheduling a move
-or jump marks the piece MOVING/CAPTURES, and taking a move/jump off the
-pending lists (whether it settles, cancels, or lands) marks it IDLE
-again - so a piece's own `state` field is always an accurate, directly
-readable reflection of what these lists say, without another caller
-needing to ask MotionTracker by position.
+MotionTracker is also the sole writer of Piece.state for its own pending
+lists: scheduling a move or jump marks the piece MOVING/AIRBORNE, and
+taking a move/jump off a pending list marks it IDLE again - so a piece's
+own `state` field is always an accurate, directly readable reflection of
+what these lists say, without another caller needing to ask
+MotionTracker by position. Whether a piece then goes on to *rest*
+(LONG_REST/SHORT_REST) is a decision the caller (GameEngine) makes with
+`begin_rest`, once it knows more than MotionTracker does - e.g. whether
+a due move actually settled, or that a landed jump always counts as a
+real, successful event (see RealTimeArbiter - an airborne piece can
+never be dislodged). Resting itself is tracked the same way as pending
+moves and airborne jumps: a piece is registered with a wake-up time and
+comes off the list (back to IDLE) once that time is reached.
 """
 
 from dataclasses import dataclass
@@ -53,10 +60,17 @@ class AirborneJump:
     land_at_ms: int
 
 
+@dataclass
+class Resting:
+    piece: object  # Piece
+    rest_over_ms: int
+
+
 class MotionTracker:
     def __init__(self):
         self._pending_moves = []
         self._airborne_jumps = []
+        self._resting = []
 
     # --- moves -----------------------------------------------------------
 
@@ -87,21 +101,41 @@ class MotionTracker:
 
     def schedule_jump(self, position, piece, land_at_ms):
         self._airborne_jumps.append(AirborneJump(position, piece, land_at_ms))
-        piece.state = PieceState.CAPTURES
+        piece.state = PieceState.AIRBORNE
 
     def is_airborne(self, position):
         return any(jump.position == position for jump in self._airborne_jumps)
 
     def land_due_jumps(self, now_ms):
-        """Drop every jump whose window has elapsed. No board change is
-        needed here - the piece stayed on its cell the whole time, so
-        simply no longer being tracked here *is* landing."""
+        """Remove and return every jump whose window has elapsed; the
+        rest stay airborne. No board change is needed here - the piece
+        stayed on its cell the whole time, so simply no longer being
+        tracked here *is* landing."""
         landed = [jump for jump in self._airborne_jumps if jump.land_at_ms <= now_ms]
         self._airborne_jumps = [jump for jump in self._airborne_jumps if jump.land_at_ms > now_ms]
         for jump in landed:
             jump.piece.state = PieceState.IDLE
+        return landed
 
     def clear_jumps(self):
         for jump in self._airborne_jumps:
             jump.piece.state = PieceState.IDLE
         self._airborne_jumps = []
+
+    # --- rests -------------------------------------------------------------
+
+    def begin_rest(self, piece, state, rest_over_ms):
+        self._resting.append(Resting(piece, rest_over_ms))
+        piece.state = state
+
+    def wake_due_rests(self, now_ms):
+        """Wake every resting piece whose rest is over, back to IDLE."""
+        woken = [resting for resting in self._resting if resting.rest_over_ms <= now_ms]
+        self._resting = [resting for resting in self._resting if resting.rest_over_ms > now_ms]
+        for resting in woken:
+            resting.piece.state = PieceState.IDLE
+
+    def clear_rests(self):
+        for resting in self._resting:
+            resting.piece.state = PieceState.IDLE
+        self._resting = []

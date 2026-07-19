@@ -20,9 +20,6 @@ still override the default later - apply_promotion_choice replaces
 whatever piece is currently there with the chosen one.
 """
 
-from kungfu_chess.rules.piece_rules import MOVE_ONLY, CAPTURE_ONLY
-
-
 class RuleEngine:
     def __init__(self, piece_rules):
         self._piece_rules = piece_rules
@@ -36,20 +33,10 @@ class RuleEngine:
                 continue
 
             target_piece = board.get(to_position.row, to_position.col)
-            if self._satisfies_requirement(requirement, target_piece, mover_piece.color):
+            if self._piece_rules.requirement_satisfied(requirement, target_piece, mover_piece.color):
                 return True
 
         return False
-
-    @staticmethod
-    def _satisfies_requirement(requirement, target_piece, mover_color):
-        is_empty = target_piece is None
-        if requirement == MOVE_ONLY:
-            return is_empty
-        if requirement == CAPTURE_ONLY:
-            return not is_empty and target_piece.color != mover_color
-        # ANY: empty is fine, capturing an enemy is fine, own color is not.
-        return is_empty or target_piece.color != mover_color
 
     def settle_clear_move(self, board, game_state, mover_piece, from_position, to_position):
         """Apply a move the real-time arbiter has classified as clear to
@@ -108,6 +95,7 @@ class RuleEngine:
         (still at `from_position`) tried to arrive there: the airborne
         piece captures the arriver instead of being captured.
         """
+        #TODO: capture only while landing
         game_state.record_airborne_capture(board, attacker_piece, defender_piece, position)
         game_state.record_capture(defender_piece.color, self._piece_rules.value_of(attacker_piece))
         board.remove(from_position.row, from_position.col)

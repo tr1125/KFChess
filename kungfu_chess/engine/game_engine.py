@@ -31,6 +31,8 @@ from kungfu_chess.realtime.real_time_arbiter import RealTimeArbiter, CollisionKi
 
 DEFAULT_MOVE_DURATION_PER_CELL_MS = 1000
 DEFAULT_JUMP_DURATION_MS = 1000
+DEFAULT_LONG_REST_DURATION_MS = 1000
+DEFAULT_SHORT_REST_DURATION_MS = 500
 
 
 class GameEngine:
@@ -44,6 +46,8 @@ class GameEngine:
         game_state=None,
         move_duration_per_cell_ms=DEFAULT_MOVE_DURATION_PER_CELL_MS,
         jump_duration_ms=DEFAULT_JUMP_DURATION_MS,
+        long_rest_duration_ms=DEFAULT_LONG_REST_DURATION_MS,
+        short_rest_duration_ms=DEFAULT_SHORT_REST_DURATION_MS,
     ):
         self._board = board
         self._rule_engine = rule_engine
@@ -54,6 +58,8 @@ class GameEngine:
         self._game_state.attach_board(board)
         self._move_duration_per_cell_ms = move_duration_per_cell_ms
         self._jump_duration_ms = jump_duration_ms
+        self._long_rest_duration_ms = long_rest_duration_ms
+        self._short_rest_duration_ms = short_rest_duration_ms
         self._selected = None  # Position or None
 
     def board(self):
@@ -109,22 +115,25 @@ class GameEngine:
         piece = self._board.get(row, col)
 
         if self._selected is None:
-            # A piece already mid-route cannot be selected - this is what
-            # makes redirecting an in-flight piece impossible. Once it
-            # settles, it becomes selectable again immediately - no
-            # separate cooldown exists.
-            if piece is not None and piece.state != PieceState.MOVING:
+            # Only an IDLE piece can be selected - this is what makes
+            # redirecting an in-flight piece impossible, keeps an airborne
+            # piece committed to its jump, and keeps a resting piece
+            # unselectable until its rest elapses. See _is_selectable.
+            if piece is not None and self._is_selectable(piece):
                 self._selected = position
             return
 
         selected_piece = self._board.get(self._selected.row, self._selected.col)
 
         if piece is not None and piece.color == selected_piece.color:
-            if piece.state != PieceState.MOVING:
+            if self._is_selectable(piece):
                 self._selected = position
             return
 
         self._try_request_move(self._selected, position, selected_piece)
+
+    def _is_selectable(self, piece):
+        return piece.state == PieceState.IDLE
 
     def jump(self, row, col):
         if self._is_paused():
@@ -137,7 +146,7 @@ class GameEngine:
         if piece is None:
             return
         if piece.state != PieceState.IDLE:
-            return  # a moving or already-airborne piece cannot (re-)jump
+            return  # a moving, resting, or already-airborne piece cannot (re-)jump
 
         land_at = self._clock.now() + self._jump_duration_ms
         self._motion.schedule_jump(position, piece, land_at)
@@ -147,7 +156,17 @@ class GameEngine:
             return
         self._clock.advance(ms)
         self._settle_due_moves()
-        self._motion.land_due_jumps(self._clock.now())
+        self._land_due_jumps()
+        self._motion.wake_due_rests(self._clock.now())
+
+    def _land_due_jumps(self):
+        for jump in self._motion.land_due_jumps(self._clock.now()):
+            # A landed jump is always a real, successful event - the
+            # airborne piece can never be dislodged (see RealTimeArbiter) -
+            # so landing unconditionally begins a short rest.
+            self._motion.begin_rest(
+                jump.piece, PieceState.SHORT_REST, self._clock.now() + self._short_rest_duration_ms
+            )
 
     def _try_request_move(self, source, destination, selected_piece):
         if self._motion.has_opposing_color_in_flight(selected_piece.color):
@@ -175,6 +194,7 @@ class GameEngine:
             if self._game_state.is_game_over():
                 self._motion.clear_moves()
                 self._motion.clear_jumps()
+                self._motion.clear_rests()
                 return
 
     def _settle_one_move(self, move):
@@ -196,4 +216,7 @@ class GameEngine:
 
         self._rule_engine.settle_clear_move(
             self._board, self._game_state, move.piece, move.from_position, move.to_position
+        )
+        self._motion.begin_rest(
+            move.piece, PieceState.LONG_REST, self._clock.now() + self._long_rest_duration_ms
         )

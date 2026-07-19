@@ -124,7 +124,7 @@ def test_illegal_shape_move_is_never_scheduled_even_after_waiting():
     assert signature(board.get(0, 0)) == ("w", "R")
 
 
-# --- no redirecting a piece mid-route; no cooldown after arrival ---
+# --- no redirecting a piece mid-route; long rest cooldown after arrival ---
 
 def test_piece_cannot_be_reselected_while_still_in_transit():
     rows = [["wR", ".", "."], [".", ".", "."]]
@@ -138,12 +138,25 @@ def test_piece_cannot_be_reselected_while_still_in_transit():
     assert sig_rows(board.rows()) == [[None, None, ("w", "R")], [None, None, None]]
 
 
-def test_piece_can_move_again_immediately_after_arrival_no_cooldown():
+def test_piece_cannot_move_again_during_long_rest():
     rows = [["wR", ".", "."], [".", ".", "."]]
-    engine, board = make_engine(rows)
+    engine, board = make_engine(rows, long_rest_duration_ms=500)
     engine.click(0, 0)
     engine.click(0, 2)
-    engine.wait(2000)
+    engine.wait(2000)  # move settles; wR is now long-resting
+    engine.click(0, 2)  # attempt to reselect - ignored, still resting
+    engine.click(1, 2)
+    engine.wait(1000)
+    assert sig_rows(board.rows()) == [[None, None, ("w", "R")], [None, None, None]]
+
+
+def test_piece_can_move_again_after_long_rest_elapses():
+    rows = [["wR", ".", "."], [".", ".", "."]]
+    engine, board = make_engine(rows, long_rest_duration_ms=500)
+    engine.click(0, 0)
+    engine.click(0, 2)
+    engine.wait(2000)  # move settles; wR is now long-resting
+    engine.wait(500)  # rest elapses
     engine.click(0, 2)
     engine.click(1, 2)
     engine.wait(1000)
@@ -201,6 +214,20 @@ def test_movement_conflict_first_registered_piece_wins_destination():
         [None, None, None],
         [("w", "R"), None, ("w", "K")],
     ]
+
+
+def test_friendly_cancelled_move_does_not_trigger_rest():
+    rows = [["wR", ".", "."], [".", ".", "."], [".", ".", "wK"]]
+    engine, board = make_engine(rows)
+    engine.click(0, 0)
+    engine.click(2, 0)  # wR -> (2, 0), registered first
+    engine.click(2, 2)  # select wK
+    engine.click(2, 0)  # wK -> (2, 0), same destination - cancelled, wK never moves
+    engine.wait(2000)
+    engine.click(2, 2)  # wK is still at its original cell and immediately selectable
+    engine.click(1, 2)
+    engine.wait(1000)
+    assert signature(board.get(1, 2)) == ("w", "K")
 
 
 # --- game-over on king capture ---
@@ -393,6 +420,31 @@ def test_already_airborne_piece_cannot_re_jump():
     assert signature(board.get(1, 1)) == ("w", "K")
 
 
+def test_landed_jump_cannot_move_or_rejump_during_short_rest():
+    rows = [[".", ".", "."], [".", "wK", "."], [".", ".", "."]]
+    engine, board = make_engine(rows, short_rest_duration_ms=500)
+    engine.jump(1, 1)
+    engine.wait(1000)  # jump lands; wK is now short-resting
+    engine.jump(1, 1)  # ignored - still resting
+    engine.click(1, 1)  # attempt to reselect - ignored, still resting
+    engine.click(0, 1)
+    engine.wait(1000)
+    assert signature(board.get(1, 1)) == ("w", "K")
+    assert board.get(0, 1) is None
+
+
+def test_landed_jump_can_move_again_after_short_rest_elapses():
+    rows = [[".", ".", "."], [".", "wK", "."], [".", ".", "."]]
+    engine, board = make_engine(rows, short_rest_duration_ms=500)
+    engine.jump(1, 1)
+    engine.wait(1000)  # jump lands; wK is now short-resting
+    engine.wait(500)  # rest elapses
+    engine.click(1, 1)
+    engine.click(0, 1)
+    engine.wait(1000)
+    assert signature(board.get(0, 1)) == ("w", "K")
+
+
 def test_jump_on_empty_cell_is_a_no_op():
     rows = [[".", ".", "."], [".", ".", "."]]
     engine, board = make_engine(rows)
@@ -435,7 +487,7 @@ def test_engine_scores_start_at_zero():
 
 def test_engine_credits_capture_via_game_state():
     rows = [["bR", ".", "."], [".", ".", "."], [".", ".", "wR"]]
-    engine, board = make_engine(rows)
+    engine, board = make_engine(rows, long_rest_duration_ms=0)  # not testing resting here
     engine.click(2, 2)  # select wR
     engine.click(0, 2)  # move up column 2, not yet capturing
     engine.wait(2000)

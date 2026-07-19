@@ -247,6 +247,20 @@ class PieceRules:
             return entry.get(color, [])
         return entry
 
+    @staticmethod
+    def requirement_satisfied(requirement, target_piece, mover_color):
+        """Whether a candidate destination's occupancy satisfies one of
+        the three requirement kinds defined above (ANY/MOVE_ONLY/
+        CAPTURE_ONLY). Capturing your own color is never satisfied by any
+        requirement.
+        """
+        is_empty = target_piece is None
+        if requirement == MOVE_ONLY:
+            return is_empty
+        if requirement == CAPTURE_ONLY:
+            return not is_empty and target_piece.color != mover_color
+        return is_empty or target_piece.color != mover_color
+
     def promotion_trigger_for(self, piece, to_row, board):
         """Return the PromotionRule matching this piece's arrival at
         to_row, or None if this landing doesn't trigger a promotion.
