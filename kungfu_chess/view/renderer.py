@@ -18,8 +18,23 @@ class CellView:
 
 
 class BoardRenderer:
-    def __init__(self, cell_size_px):
+    def __init__(self, cell_size_px, margin_left_px=0, margin_top_px=0):
         self._cell_size_px = cell_size_px
+        self._margin_left_px = margin_left_px
+        self._margin_top_px = margin_top_px
+
+    @property
+    def cell_size_px(self):
+        return self._cell_size_px
+
+    def pixel_position(self, row, col):
+        """(x_px, y_px) for the top-left corner of an arbitrary board
+        cell - not necessarily one currently occupied. Exposed so the
+        animation layer (UI_PLAN.md Sec 5) can compute glide endpoints
+        for a piece's in-flight leg using exactly the same geometry as
+        render() itself, rather than re-deriving it.
+        """
+        return self._margin_left_px + col * self._cell_size_px, self._margin_top_px + row * self._cell_size_px
 
     def render(self, game_state):
         """Return a list[CellView], one per board cell, describing what
@@ -28,13 +43,14 @@ class BoardRenderer:
         cells = []
         for row_index, row in enumerate(game_state.board_rows()):
             for col_index, piece in enumerate(row):
+                x_px, y_px = self.pixel_position(row_index, col_index)
                 cells.append(
                     CellView(
                         row=row_index,
                         col=col_index,
                         piece=piece,
-                        x_px=col_index * self._cell_size_px,
-                        y_px=row_index * self._cell_size_px,
+                        x_px=x_px,
+                        y_px=y_px,
                         size_px=self._cell_size_px,
                     )
                 )

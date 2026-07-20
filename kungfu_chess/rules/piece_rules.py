@@ -20,7 +20,13 @@ from kungfu_chess.model.piece import (
     PAWN_TYPE,
     WHITE,
     BLACK,
+    passes_as_empty,
 )
+from kungfu_chess.model.position import Position, chebyshev_distance
+
+
+def _sign(n):
+    return (n > 0) - (n < 0)
 
 # --- occupancy requirements -------------------------------------------
 #
@@ -48,13 +54,18 @@ class StepPattern:
     def __init__(self, offsets):
         self._offsets = offsets  # list of (delta_row, delta_col)
 
-    def destinations(self, board, row, col):
+    def destinations(self, board, row, col, mover_color):
         results = []
         for delta_row, delta_col in self._offsets:
             target_row, target_col = row + delta_row, col + delta_col
             if board.in_bounds(target_row, target_col):
                 results.append((target_row, target_col))
         return results
+
+    def path_to(self, from_row, from_col, to_row, to_col):
+        """A single hop has no intermediate cells to check - whatever its
+        distance (e.g. a knight's L-shape), the whole move is one leg."""
+        return [Position(to_row, to_col)]
 
 
 class SlidePattern:
@@ -65,22 +76,37 @@ class SlidePattern:
     *actually* legal (same color = no) is decided by RuleEngine, not
     here - this class only knows geometry + occupancy, not whose piece is
     whose.
+
+    An enemy piece that is currently AIRBORNE (mid-jump) does not block
+    the path - its cell is logically vacated for movement purposes (see
+    passes_as_empty) - so the slide continues past it as if it were
+    empty, exactly like the real-time re-checking of every intermediate
+    cell during a cell-by-cell advance (see GameEngine/RealTimeArbiter).
     """
 
     def __init__(self, directions):
         self._directions = directions  # list of (delta_row, delta_col)
 
-    def destinations(self, board, row, col):
+    def destinations(self, board, row, col, mover_color):
         results = []
         for delta_row, delta_col in self._directions:
             target_row, target_col = row + delta_row, col + delta_col
             while board.in_bounds(target_row, target_col):
                 results.append((target_row, target_col))
-                if board.get(target_row, target_col) is not None:
+                occupant = board.get(target_row, target_col)
+                if occupant is not None and not passes_as_empty(occupant, mover_color):
                     break  # path blocked beyond this cell
                 target_row += delta_row
                 target_col += delta_col
         return results
+
+    def path_to(self, from_row, from_col, to_row, to_col):
+        """The cell-by-cell path along this pattern's straight-line
+        geometry, one entry per leg, ending at (to_row, to_col)."""
+        distance = chebyshev_distance(Position(from_row, from_col), Position(to_row, to_col))
+        row_step = _sign(to_row - from_row)
+        col_step = _sign(to_col - from_col)
+        return [Position(from_row + row_step * i, from_col + col_step * i) for i in range(1, distance + 1)]
 
 
 class PawnDoubleStepPattern:
@@ -98,7 +124,7 @@ class PawnDoubleStepPattern:
         self._forward_delta = forward_delta
         self._start_row_fn = start_row_fn
 
-    def destinations(self, board, row, col):
+    def destinations(self, board, row, col, mover_color):
         if row != self._start_row_fn(board):
             return []
 
@@ -106,13 +132,20 @@ class PawnDoubleStepPattern:
         step_row, step_col = row + delta_row, col + delta_col
         if not board.in_bounds(step_row, step_col):
             return []
-        if board.get(step_row, step_col) is not None:
+        if not passes_as_empty(board.get(step_row, step_col), mover_color):
             return []  # path is blocked
 
         dest_row, dest_col = step_row + delta_row, step_col + delta_col
         if not board.in_bounds(dest_row, dest_col):
             return []
         return [(dest_row, dest_col)]
+
+    def path_to(self, from_row, from_col, to_row, to_col):
+        """Always two legs: the single step forward, then the double-step
+        destination - the same straight-line geometry as SlidePattern,
+        just always exactly distance 2."""
+        delta_row, delta_col = self._forward_delta
+        return [Position(from_row + delta_row, from_col + delta_col), Position(to_row, to_col)]
 
 
 # --- promotion trigger --------------------------------------------------
@@ -252,9 +285,11 @@ class PieceRules:
         """Whether a candidate destination's occupancy satisfies one of
         the three requirement kinds defined above (ANY/MOVE_ONLY/
         CAPTURE_ONLY). Capturing your own color is never satisfied by any
-        requirement.
+        requirement. An enemy piece that's currently AIRBORNE counts as
+        empty here too (see passes_as_empty) - there's nothing to capture
+        there yet, only at the airborne piece's own landing instant.
         """
-        is_empty = target_piece is None
+        is_empty = passes_as_empty(target_piece, mover_color)
         if requirement == MOVE_ONLY:
             return is_empty
         if requirement == CAPTURE_ONLY:

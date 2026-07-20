@@ -54,6 +54,17 @@ class Board:
         """Clear a cell entirely (a piece that's gone, not moved anywhere)."""
         self._rows[row][col] = None
 
+    def place(self, row, col, piece):
+        """Put `piece` directly onto (row, col), overwriting whatever was
+        there, without it having come `from` another cell on the grid.
+        Used when a piece needs to (re-)occupy a cell it didn't just
+        arrive at via apply_move - e.g. an airborne piece reclaiming its
+        own cell at landing, after some other piece settled there during
+        its flight (see RuleEngine.settle_airborne_capture).
+        """
+        self._rows[row][col] = piece
+        piece.cell = Position(row, col)
+
     def rows(self):
         """Return a defensive copy so callers can't mutate internal state."""
         return [list(row) for row in self._rows]

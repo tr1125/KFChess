@@ -50,3 +50,34 @@ def test_render_reflects_current_board_state_not_a_stale_snapshot():
 def test_render_empty_board_yields_no_cells():
     state, _ = make_game_state([])
     assert BoardRenderer(cell_size_px=100).render(state) == []
+
+
+def test_render_offsets_pixel_rects_by_configured_margin():
+    state, _ = make_game_state([["wK", "."], [".", "bK"]])
+    cells = BoardRenderer(cell_size_px=100, margin_left_px=20, margin_top_px=10).render(state)
+    pixels = {(cell.row, cell.col): (cell.x_px, cell.y_px) for cell in cells}
+    assert pixels[(0, 0)] == (20, 10)
+    assert pixels[(0, 1)] == (120, 10)
+    assert pixels[(1, 0)] == (20, 110)
+
+
+# --- pixel_position ---
+
+
+def test_pixel_position_matches_render_for_an_occupied_cell():
+    state, _ = make_game_state([["wK", "."], [".", "bK"]])
+    renderer = BoardRenderer(cell_size_px=100, margin_left_px=20, margin_top_px=10)
+    cells = renderer.render(state)
+    target = next(cell for cell in cells if (cell.row, cell.col) == (1, 1))
+
+    assert renderer.pixel_position(1, 1) == (target.x_px, target.y_px)
+
+
+def test_pixel_position_works_for_a_cell_with_no_piece_and_off_the_current_board():
+    renderer = BoardRenderer(cell_size_px=50, margin_left_px=5, margin_top_px=0)
+    assert renderer.pixel_position(0, 3) == (155, 0)
+
+
+def test_cell_size_px_exposes_the_configured_cell_size():
+    renderer = BoardRenderer(cell_size_px=77, margin_left_px=5, margin_top_px=0)
+    assert renderer.cell_size_px == 77

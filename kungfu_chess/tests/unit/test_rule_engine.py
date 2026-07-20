@@ -13,7 +13,7 @@ strings.
 """
 
 from kungfu_chess.model.board import Board
-from kungfu_chess.model.piece import Piece
+from kungfu_chess.model.piece import Piece, PieceState
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.game_state import GameState
 from kungfu_chess.rules.piece_rules import PieceRules, PromotionRule, default_piece_rules
@@ -324,6 +324,51 @@ def test_settle_clear_move_honors_injected_custom_piece_rules():
     assert pending.choices == ("Q", "R")
 
 
+# --- settle_clear_move: an enemy-airborne destination is not a capture yet ---
+
+def test_settle_clear_move_does_not_record_a_capture_when_destination_is_enemy_airborne():
+    """Landing on an enemy currently AIRBORNE is a normal, quiet arrival -
+    it's "safe" (see UI_PLAN.md Sec 2) until that piece's own landing
+    instant, which is a separate mechanic (settle_airborne_capture,
+    triggered from GameEngine._land_due_jumps)."""
+    board = board_from([["wR", "bN"]])
+    board.get(0, 1).state = PieceState.AIRBORNE
+    state = GameState()
+    engine = make_engine()
+    mover = board.get(0, 0)
+    ends_game = engine.settle_clear_move(board, state, mover, Position(0, 0), Position(0, 1))
+    assert ends_game is False
+    assert signature(board.get(0, 1)) == ("w", "R")  # overwrites the stale grid slot regardless
+    assert state.move_history() == ["Rb1"]  # a quiet move, not "Rxb1"
+    assert state.scores() == {"w": 0, "b": 0}  # nothing captured
+
+
+# --- settle_stopped_move: a multi-cell move blocked mid-path, without touching the board ---
+
+def test_settle_stopped_move_records_history_without_moving_the_piece():
+    board = board_from([["wR", ".", "."]])
+    state = GameState()
+    engine = make_engine()
+    mover = board.get(0, 0)
+    board.apply_move(0, 0, 0, 1)  # simulate one already-completed leg
+    engine.settle_stopped_move(board, state, mover, Position(0, 0), Position(0, 1))
+    assert signature(board.get(0, 1)) == ("w", "R")  # untouched - it was already there
+    assert state.move_history() == ["Rb1"]
+    assert state.scores() == {"w": 0, "b": 0}
+    assert not state.is_game_over()
+
+
+def test_settle_stopped_move_still_checks_for_a_promotion_trigger():
+    rows = [["wK", ".", "bK"], [".", "wP", "."]]
+    board = board_from(rows)
+    state = GameState()
+    engine = make_engine()
+    mover = board.get(1, 1)
+    board.apply_move(1, 1, 0, 1)  # simulate the pawn having already reached the promotion rank
+    engine.settle_stopped_move(board, state, mover, Position(1, 1), Position(0, 1))
+    assert signature(board.get(0, 1)) == ("w", "Q")  # auto-promoted, same as settle_clear_move
+
+
 # --- settle_airborne_capture ---
 
 def test_settle_airborne_capture_records_comment_and_removes_attacker():
@@ -346,12 +391,61 @@ def test_settle_airborne_capture_credits_the_airborne_defender_not_the_arriver()
     assert state.scores() == {"w": 0, "b": 5}  # bN captures wR (worth 5) mid-air
 
 
+def test_settle_airborne_capture_reinstates_the_defender_when_attacker_overwrote_its_cell():
+    """The realistic call shape from GameEngine._land_due_jumps: the
+    attacker already settled onto the defender's home cell (from_position
+    == position) sometime during the flight, overwriting it on the board
+    - landing must put the defender back."""
+    board = board_from([["bN"]])  # attacker now sits where the defender (never removed from the grid) lands
+    state = GameState()
+    engine = make_engine()
+    attacker = board.get(0, 0)
+    defender = Piece(color="w", kind="K")
+    engine.settle_airborne_capture(board, state, attacker, defender, Position(0, 0), Position(0, 0))
+    assert signature(board.get(0, 0)) == ("w", "K")  # defender reclaims its cell
+
+
+def test_settle_airborne_capture_ends_the_game_on_a_king_capture():
+    board = board_from([["bK"]])
+    state = GameState()
+    engine = make_engine()
+    attacker = board.get(0, 0)
+    defender = Piece(color="w", kind="N")
+    ends_game = engine.settle_airborne_capture(board, state, attacker, defender, Position(0, 0), Position(0, 0))
+    assert ends_game is True
+    assert state.is_game_over()
+
+
+# --- path_for_move ---
+
+def test_path_for_move_for_a_slide_is_the_full_cell_by_cell_route():
+    engine = make_engine()
+    board = empty_board()
+    path = engine.path_for_move(piece_from_token("wR"), board, Position(0, 0), Position(0, 3))
+    assert path == [Position(0, 1), Position(0, 2), Position(0, 3)]
+
+
+def test_path_for_move_for_a_knight_is_a_single_leg_regardless_of_distance():
+    engine = make_engine()
+    board = empty_board()
+    path = engine.path_for_move(piece_from_token("wN"), board, Position(2, 2), Position(0, 1))
+    assert path == [Position(0, 1)]
+
+
+def test_path_for_move_for_a_pawn_double_step_is_two_legs():
+    rows = [[".", "."], [".", "."], ["wP", "."], [".", "."]]  # height=4, white start row = 4-2=2
+    board = board_from(rows)
+    engine = make_engine()
+    path = engine.path_for_move(piece_from_token("wP"), board, Position(2, 0), Position(0, 0))
+    assert path == [Position(1, 0), Position(0, 0)]
+
+
 # --- apply_promotion_choice ---
 
 def test_apply_promotion_choice_replaces_piece_kind_and_records_history():
     board = board_from([["wK", "wP", ".", "bK"]])
     state = GameState()
-    state.schedule_promotion(Position(0, 1), "w", ("Q", "R", "B", "N"))
+    state.schedule_promotion(Position(0, 1), "w", ("Q", "R", "B", "N"), board.get(0, 1))
     engine = make_engine()
 
     applied = engine.apply_promotion_choice(board, state, Position(0, 1), "Q")
@@ -365,7 +459,7 @@ def test_apply_promotion_choice_replaces_piece_kind_and_records_history():
 def test_apply_promotion_choice_rejects_a_choice_outside_configured_options():
     board = board_from([["wK", "wP", ".", "bK"]])
     state = GameState()
-    state.schedule_promotion(Position(0, 1), "w", ("Q", "R", "B", "N"))
+    state.schedule_promotion(Position(0, 1), "w", ("Q", "R", "B", "N"), board.get(0, 1))
     engine = make_engine()
 
     applied = engine.apply_promotion_choice(board, state, Position(0, 1), "K")
@@ -384,3 +478,41 @@ def test_apply_promotion_choice_is_a_no_op_when_nothing_pending_there():
 
     assert applied is False
     assert signature(board.get(0, 0)) == ("w", "P")
+
+
+def test_apply_promotion_choice_is_a_no_op_when_the_pending_piece_has_since_moved_away():
+    """position alone is a stale key once the promoted piece moves on -
+    the square it was scheduled at may now be empty. Resolving against
+    it anyway must not crash (see Board.promote, which assumes a piece
+    is there)."""
+    board = board_from([["wK", "wQ", ".", "bK"]])
+    state = GameState()
+    engine = make_engine()
+    promoted = board.get(0, 1)
+    state.schedule_promotion(Position(0, 1), "w", ("Q", "R", "B", "N"), promoted)
+    board.apply_move(0, 1, 0, 2)  # the promoted piece moves on; (0, 1) is now empty
+
+    applied = engine.apply_promotion_choice(board, state, Position(0, 1), "N")
+
+    assert applied is False
+    assert signature(board.get(0, 2)) == ("w", "Q")  # unaffected
+    assert state.has_pending_promotion()  # left in place, same as an invalid-choice no-op
+
+
+def test_apply_promotion_choice_is_a_no_op_when_a_different_piece_now_occupies_the_square():
+    """The bug this guards against isn't just a crash - if some other
+    piece has since landed on the stale square, resolving the pending
+    choice against `position` alone would silently rewrite that
+    unrelated piece's kind instead of no-op'ing."""
+    board = board_from([["wK", "wQ", ".", "bK"]])
+    state = GameState()
+    engine = make_engine()
+    promoted = board.get(0, 1)
+    state.schedule_promotion(Position(0, 1), "w", ("Q", "R", "B", "N"), promoted)
+    board.apply_move(0, 1, 0, 2)  # the promoted piece moves on
+    board.place(0, 1, piece_from_token("bR"))  # an unrelated piece now sits at the stale square
+
+    applied = engine.apply_promotion_choice(board, state, Position(0, 1), "N")
+
+    assert applied is False
+    assert signature(board.get(0, 1)) == ("b", "R")  # unrelated piece left untouched

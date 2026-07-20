@@ -1,0 +1,13 @@
+{
+  "panel_width_px": 240,
+  "line_height_px": 24,
+  "font_scale": 0.5,
+  "font_thickness": 1,
+  "text_color": [255, 255, 255],
+  "background_color": [30, 30, 30],
+  "padding_px": 10,
+  "labels": {
+    "w": "White",
+    "b": "Black"
+  }
+}

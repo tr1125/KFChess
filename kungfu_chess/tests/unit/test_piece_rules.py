@@ -5,7 +5,8 @@ RuleEngine's job and is tested in test_rule_engine.py instead.
 """
 
 from kungfu_chess.model.board import Board
-from kungfu_chess.model.piece import Piece
+from kungfu_chess.model.piece import Piece, PieceState
+from kungfu_chess.model.position import Position
 from kungfu_chess.rules.piece_rules import (
     StepPattern,
     SlidePattern,
@@ -35,7 +36,7 @@ def piece(color, kind):
 def test_step_pattern_returns_in_bounds_offsets_only():
     board = empty_board()
     pattern = StepPattern([(-1, 0), (1, 0), (0, -10)])
-    assert pattern.destinations(board, 2, 2) == [(1, 2), (3, 2)]
+    assert pattern.destinations(board, 2, 2, "w") == [(1, 2), (3, 2)]
 
 
 def test_step_pattern_ignores_occupancy():
@@ -46,7 +47,14 @@ def test_step_pattern_ignores_occupancy():
     ]
     board = Board(rows)
     pattern = StepPattern([(-1, 0)])
-    assert pattern.destinations(board, 1, 1) == [(0, 1)]
+    assert pattern.destinations(board, 1, 1, "w") == [(0, 1)]
+
+
+def test_step_pattern_path_to_is_always_a_single_leg():
+    """A knight's L-shape (or any other step offset) has no path to
+    check, regardless of distance - the whole move is one leg."""
+    pattern = StepPattern([(-2, -1)])
+    assert pattern.path_to(2, 2, 0, 1) == [Position(0, 1)]
 
 
 # --- SlidePattern ---
@@ -54,20 +62,52 @@ def test_step_pattern_ignores_occupancy():
 def test_slide_pattern_covers_full_direction_when_unblocked():
     board = empty_board()
     pattern = SlidePattern([(0, 1)])
-    assert pattern.destinations(board, 0, 0) == [(0, 1), (0, 2), (0, 3), (0, 4)]
+    assert pattern.destinations(board, 0, 0, "w") == [(0, 1), (0, 2), (0, 3), (0, 4)]
 
 
 def test_slide_pattern_stops_at_and_includes_first_blocker():
     rows = [[piece("w", "R"), None, piece("b", "N"), None, None]]
     board = Board(rows)
     pattern = SlidePattern([(0, 1)])
-    assert pattern.destinations(board, 0, 0) == [(0, 1), (0, 2)]
+    assert pattern.destinations(board, 0, 0, "w") == [(0, 1), (0, 2)]
 
 
 def test_slide_pattern_handles_multiple_directions_independently():
     board = empty_board()
     pattern = SlidePattern([(0, 1), (0, -1)])
-    assert pattern.destinations(board, 0, 2) == [(0, 3), (0, 4), (0, 1), (0, 0)]
+    assert pattern.destinations(board, 0, 2, "w") == [(0, 3), (0, 4), (0, 1), (0, 0)]
+
+
+def test_slide_pattern_continues_past_an_airborne_enemy():
+    """An enemy currently AIRBORNE is logically vacated for movement
+    purposes - the slide continues past it to cells beyond, unlike an
+    ordinary blocker (see passes_as_empty)."""
+    rows = [[piece("w", "R"), None, piece("b", "N"), None, None]]
+    board = Board(rows)
+    board.get(0, 2).state = PieceState.AIRBORNE
+    pattern = SlidePattern([(0, 1)])
+    assert pattern.destinations(board, 0, 0, "w") == [(0, 1), (0, 2), (0, 3), (0, 4)]
+
+
+def test_slide_pattern_still_stops_at_a_friendly_airborne_piece():
+    """The airborne exception only applies to an enemy of the mover - a
+    friendly piece's own airborne teammate still blocks like any other
+    friendly occupant."""
+    rows = [[piece("w", "R"), None, piece("w", "N"), None, None]]
+    board = Board(rows)
+    board.get(0, 2).state = PieceState.AIRBORNE
+    pattern = SlidePattern([(0, 1)])
+    assert pattern.destinations(board, 0, 0, "w") == [(0, 1), (0, 2)]
+
+
+def test_slide_pattern_path_to_walks_every_intermediate_cell():
+    pattern = SlidePattern([(0, 1)])
+    assert pattern.path_to(0, 0, 0, 3) == [Position(0, 1), Position(0, 2), Position(0, 3)]
+
+
+def test_slide_pattern_path_to_handles_diagonal_direction():
+    pattern = SlidePattern([(1, 1)])
+    assert pattern.path_to(0, 0, 2, 2) == [Position(1, 1), Position(2, 2)]
 
 
 # --- PawnDoubleStepPattern ---
@@ -75,26 +115,34 @@ def test_slide_pattern_handles_multiple_directions_independently():
 def test_pawn_double_step_legal_from_start_row_when_clear():
     board = empty_board(size=4)
     pattern = PawnDoubleStepPattern((-1, 0), start_row_fn=lambda b: b.height - 1)
-    assert pattern.destinations(board, 3, 1) == [(1, 1)]
+    assert pattern.destinations(board, 3, 1, "w") == [(1, 1)]
 
 
 def test_pawn_double_step_illegal_off_start_row():
     board = empty_board(size=4)
     pattern = PawnDoubleStepPattern((-1, 0), start_row_fn=lambda b: b.height - 1)
-    assert pattern.destinations(board, 2, 1) == []
+    assert pattern.destinations(board, 2, 1, "w") == []
 
 
 def test_pawn_double_step_blocked_by_piece_on_intermediate_cell():
     rows = [[None, None], [piece("b", "R"), None], [piece("w", "P"), None]]
     board = Board(rows)
     pattern = PawnDoubleStepPattern((-1, 0), start_row_fn=lambda b: b.height - 1)
-    assert pattern.destinations(board, 2, 0) == []
+    assert pattern.destinations(board, 2, 0, "w") == []
+
+
+def test_pawn_double_step_not_blocked_by_an_airborne_enemy_on_intermediate_cell():
+    rows = [[None, None], [piece("b", "R"), None], [piece("w", "P"), None]]
+    board = Board(rows)
+    board.get(1, 0).state = PieceState.AIRBORNE
+    pattern = PawnDoubleStepPattern((-1, 0), start_row_fn=lambda b: b.height - 1)
+    assert pattern.destinations(board, 2, 0, "w") == [(0, 0)]
 
 
 def test_pawn_double_step_destination_off_board_is_excluded():
     board = empty_board(size=1)
     pattern = PawnDoubleStepPattern((-1, 0), start_row_fn=lambda b: 0)
-    assert pattern.destinations(board, 0, 0) == []
+    assert pattern.destinations(board, 0, 0, "w") == []
 
 
 def test_pawn_double_step_destination_off_board_when_intermediate_cell_is_in_bounds():
@@ -104,7 +152,12 @@ def test_pawn_double_step_destination_off_board_when_intermediate_cell_is_in_bou
     """
     board = empty_board(size=2)
     pattern = PawnDoubleStepPattern((-1, 0), start_row_fn=lambda b: 1)
-    assert pattern.destinations(board, 1, 0) == []
+    assert pattern.destinations(board, 1, 0, "w") == []
+
+
+def test_pawn_double_step_path_to_is_two_legs():
+    pattern = PawnDoubleStepPattern((-1, 0), start_row_fn=lambda b: b.height - 1)
+    assert pattern.path_to(3, 1, 1, 1) == [Position(2, 1), Position(1, 1)]
 
 
 # --- PromotionRule ---
@@ -145,6 +198,48 @@ def test_patterns_for_color_dependent_entry():
 def test_patterns_for_unknown_piece_type_is_empty():
     rules = PieceRules({}, [], {})
     assert rules.patterns_for("Z", "w") == []
+
+
+# --- PieceRules.requirement_satisfied ---
+
+def test_requirement_satisfied_move_only_true_for_empty_cell():
+    assert PieceRules.requirement_satisfied(MOVE_ONLY, None, "w") is True
+
+
+def test_requirement_satisfied_move_only_false_for_occupied_cell():
+    assert PieceRules.requirement_satisfied(MOVE_ONLY, piece("b", "N"), "w") is False
+
+
+def test_requirement_satisfied_capture_only_true_for_enemy():
+    assert PieceRules.requirement_satisfied(CAPTURE_ONLY, piece("b", "N"), "w") is True
+
+
+def test_requirement_satisfied_capture_only_false_for_own_color():
+    assert PieceRules.requirement_satisfied(CAPTURE_ONLY, piece("w", "N"), "w") is False
+
+
+def test_requirement_satisfied_any_true_for_enemy_or_empty_false_for_own_color():
+    assert PieceRules.requirement_satisfied(ANY, None, "w") is True
+    assert PieceRules.requirement_satisfied(ANY, piece("b", "N"), "w") is True
+    assert PieceRules.requirement_satisfied(ANY, piece("w", "N"), "w") is False
+
+
+def test_requirement_satisfied_treats_an_airborne_enemy_as_empty():
+    """Nothing to capture at an enemy-airborne cell yet - only at its own
+    landing instant (see passes_as_empty) - so a quiet move onto it is
+    legal and a capture-only move onto it is not."""
+    airborne_enemy = piece("b", "N")
+    airborne_enemy.state = PieceState.AIRBORNE
+    assert PieceRules.requirement_satisfied(MOVE_ONLY, airborne_enemy, "w") is True
+    assert PieceRules.requirement_satisfied(CAPTURE_ONLY, airborne_enemy, "w") is False
+    assert PieceRules.requirement_satisfied(ANY, airborne_enemy, "w") is True
+
+
+def test_requirement_satisfied_does_not_treat_a_friendly_airborne_piece_as_empty():
+    airborne_friendly = piece("w", "N")
+    airborne_friendly.state = PieceState.AIRBORNE
+    assert PieceRules.requirement_satisfied(MOVE_ONLY, airborne_friendly, "w") is False
+    assert PieceRules.requirement_satisfied(ANY, airborne_friendly, "w") is False
 
 
 # --- PieceRules.promotion_trigger_for ---

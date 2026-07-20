@@ -1,0 +1,10 @@
+{
+  "mapping": [
+    {"state": "IDLE",       "folder": "idle"},
+    {"state": "MOVING",     "folder": "move"},
+    {"state": "AIRBORNE",   "folder": "jump"},
+    {"state": "LONG_REST",  "folder": "long_rest"},
+    {"state": "SHORT_REST", "folder": "short_rest"},
+    {"state": "CAPTURED",   "folder": null}
+  ]
+}

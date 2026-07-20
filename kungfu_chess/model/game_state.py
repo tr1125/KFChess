@@ -9,6 +9,13 @@ arbitrary width/height instead of assuming a fixed 8x8. Disambiguation
 implemented - this is a readable move log, not a fully PGN-compliant
 exporter.
 
+Each history entry is internally tagged with the color of whoever acted,
+so a UI can filter to one player's own moves (`moves_for_color`) - this
+matters because moves in this real-time variant are not strictly
+alternating white/black, unlike a turn-based game where that could be
+inferred from list position. `move_history()`/`history_text()` still
+expose the plain notation strings only, unchanged.
+
 Only settled moves are recorded. A cancelled/no-op move never happened
 from the game's point of view, so it leaves no entry - matching how real
 chess notation only records completed moves. This variant's king-capture
@@ -33,6 +40,11 @@ class PendingPromotion:
     position: object  # Position
     color: str
     choices: tuple
+    piece: object  # Piece - the exact instance this choice was scheduled for
+    # (see RuleEngine.apply_promotion_choice's identity check: `position`
+    # alone goes stale the moment this piece moves away or is replaced by
+    # another occupant, so resolving the choice must reconfirm identity,
+    # not just re-read the square).
 
 
 class GameState:
@@ -86,7 +98,7 @@ class GameState:
         if ends_game:
             notation += "#"
 
-        self._history_entries.append(notation)
+        self._history_entries.append((mover_piece.color, notation))
 
     def record_promotion(self, board, promoted_piece, position):
         """Record a user's promotion choice, resolved some time after the
@@ -95,19 +107,27 @@ class GameState:
         own "=X" entry instead.
         """
         square = square_name(position, board.height)
-        self._history_entries.append(f"{square}={promoted_piece.kind}")
+        self._history_entries.append((promoted_piece.color, f"{square}={promoted_piece.kind}"))
 
     def record_airborne_capture(self, board, attacker_piece, defender_piece, position):
+        """`defender_piece` is credited as the mover of this entry - it's
+        the one that acted (landed and captured), matching the accompanying
+        `record_capture(defender_piece.color, ...)` call. `attacker_piece`
+        is the one that got captured, not the actor.
+        """
         square = square_name(position, board.height)
         self._history_entries.append(
-            f"{{{attacker_piece} captured mid-air by {defender_piece} at {square}}}"
+            (defender_piece.color, f"{{{attacker_piece} captured mid-air by {defender_piece} at {square}}}")
         )
 
     def move_history(self):
-        return list(self._history_entries)
+        return [notation for _color, notation in self._history_entries]
+
+    def moves_for_color(self, color):
+        return [notation for entry_color, notation in self._history_entries if entry_color == color]
 
     def history_text(self):
-        return " ".join(self._history_entries)
+        return " ".join(notation for _color, notation in self._history_entries)
 
     # --- scores ---------------------------------------------------------
 
@@ -119,8 +139,8 @@ class GameState:
 
     # --- pending promotions ---------------------------------------------
 
-    def schedule_promotion(self, position, color, choices):
-        self._pending_promotions.append(PendingPromotion(position, color, choices))
+    def schedule_promotion(self, position, color, choices, piece):
+        self._pending_promotions.append(PendingPromotion(position, color, choices, piece))
 
     def get_pending_promotion(self, position):
         """Return the pending promotion at `position` without removing it, or None."""

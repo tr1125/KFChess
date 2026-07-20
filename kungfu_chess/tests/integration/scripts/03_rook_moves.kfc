@@ -10,7 +10,7 @@ print board
 wait 1
 print board
 Expected:
-wR . . .
+. . wR .
 . . . .
 . . . .
 . . . wR

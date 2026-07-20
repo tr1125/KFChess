@@ -1,0 +1,12 @@
+{
+  "icon_size_px": 48,
+  "spacing_px": 4,
+  "padding_px": 6,
+  "background_color": [30, 30, 30],
+  "border_color": [255, 255, 255],
+  "border_thickness": 1,
+  "text_color": [255, 255, 255],
+  "font_scale": 0.9,
+  "font_thickness": 2,
+  "choice_order": ["Q", "R", "B", "N"]
+}

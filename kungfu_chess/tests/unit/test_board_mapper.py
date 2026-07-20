@@ -26,3 +26,14 @@ def test_cell_at_respects_configured_cell_size():
 def test_cell_at_negative_pixels_maps_to_negative_cell():
     mapper = BoardMapper(cell_size_px=100)
     assert mapper.cell_at(-10, -10) == Position(-1, -1)
+
+
+def test_cell_at_with_margin_offsets_pixels_before_dividing():
+    mapper = BoardMapper(cell_size_px=100, margin_left_px=20, margin_top_px=10)
+    assert mapper.cell_at(20, 10) == Position(0, 0)
+    assert mapper.cell_at(120, 110) == Position(1, 1)
+
+
+def test_cell_at_pixel_inside_the_margin_maps_to_a_negative_cell():
+    mapper = BoardMapper(cell_size_px=100, margin_left_px=20, margin_top_px=10)
+    assert mapper.cell_at(10, 5) == Position(-1, -1)

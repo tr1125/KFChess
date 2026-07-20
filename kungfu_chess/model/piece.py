@@ -48,6 +48,7 @@ class Piece:
     kind: str
     cell: object = None  # Position
     state: PieceState = field(default=PieceState.IDLE)
+    state_entered_at: int = field(default=0)  # clock ms when `state` last changed - see MotionTracker
     id: int = field(default_factory=lambda: next(_id_counter))
 
     def __str__(self):
@@ -62,3 +63,24 @@ class Piece:
         if self.kind == PAWN_TYPE:
             return f"{origin_file}x" if is_capture else ""
         return f"{self.kind}x" if is_capture else self.kind
+
+
+def passes_as_empty(occupant, mover_color):
+    """Whether `occupant` should be treated as empty for a mover of
+    `mover_color`: either the cell truly is empty, or `occupant` is an
+    enemy piece currently AIRBORNE. A piece jumps in place - it never
+    relocates - but while it's mid-jump its own cell is *logically*
+    vacated for every other mover's path/occupancy checks (real-time
+    collision only happens at the jump's own landing instant - see
+    RealTimeArbiter and GameEngine._land_due_jumps). The board itself is
+    never touched by this - `occupant` still physically sits on the grid
+    for rendering the whole time.
+
+    Deliberately color-asymmetric: a piece's own airborne teammate is
+    NOT covered by this - it's an ordinary friendly occupant, blocking
+    like any other (no plausible way for two same-color pieces to want
+    the same cell, so this is never relaxed for friendlies).
+    """
+    return occupant is None or (
+        occupant.color != mover_color and occupant.state == PieceState.AIRBORNE
+    )

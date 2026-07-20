@@ -118,6 +118,51 @@ def test_move_history_returns_a_defensive_copy():
     assert state.move_history() == ["e4"]
 
 
+# --- per-color move filtering (moves are not strictly alternating) ---
+
+
+def test_moves_for_color_filters_a_non_alternating_sequence():
+    state = GameState()
+    state.record_move(empty_board(), piece("wP"), Position(6, 4), Position(4, 4))  # e4 (w)
+    state.record_move(empty_board(), piece("wN"), Position(7, 6), Position(5, 5))  # Nf3 (w) - same color again
+    state.record_move(empty_board(), piece("bP"), Position(1, 3), Position(3, 3))  # d5 (b)
+
+    assert state.moves_for_color("w") == ["e4", "Nf3"]
+    assert state.moves_for_color("b") == ["d5"]
+
+
+def test_moves_for_color_tags_promotion_entries_by_the_promoted_pieces_color():
+    state = GameState()
+    state.record_promotion(empty_board(), piece("bQ"), Position(7, 1))
+
+    assert state.moves_for_color("b") == ["b1=Q"]
+    assert state.moves_for_color("w") == []
+
+
+def test_moves_for_color_tags_airborne_capture_entries_by_the_defenders_color():
+    state = GameState()
+    state.record_airborne_capture(empty_board(), piece("bN"), piece("wK"), Position(4, 4))
+
+    assert state.moves_for_color("w") == ["{bN captured mid-air by wK at e4}"]
+    assert state.moves_for_color("b") == []
+
+
+def test_moves_for_color_returns_empty_list_when_color_never_moved():
+    state = GameState()
+    assert state.moves_for_color("w") == []
+
+
+def test_moves_for_color_does_not_affect_move_history_or_history_text():
+    state = GameState()
+    state.record_move(empty_board(), piece("wP"), Position(6, 4), Position(4, 4))
+    state.record_move(empty_board(), piece("bP"), Position(1, 3), Position(3, 3))
+
+    state.moves_for_color("w")
+
+    assert state.move_history() == ["e4", "d5"]
+    assert state.history_text() == "e4 d5"
+
+
 # --- scores ---
 
 def test_new_state_scores_start_at_zero_for_both_colors():
@@ -150,7 +195,7 @@ def test_scores_returns_a_defensive_copy():
 
 def test_scheduled_promotion_is_pending_at_its_position():
     state = GameState()
-    state.schedule_promotion(Position(0, 1), "w", ("Q", "R", "B", "N"))
+    state.schedule_promotion(Position(0, 1), "w", ("Q", "R", "B", "N"), piece("wP"))
     assert state.get_pending_promotion(Position(0, 1)) is not None
     assert state.get_pending_promotion(Position(1, 1)) is None
 
@@ -158,13 +203,13 @@ def test_scheduled_promotion_is_pending_at_its_position():
 def test_has_pending_promotion_reflects_whether_anything_is_pending():
     state = GameState()
     assert not state.has_pending_promotion()
-    state.schedule_promotion(Position(0, 1), "w", ("Q",))
+    state.schedule_promotion(Position(0, 1), "w", ("Q",), piece("wP"))
     assert state.has_pending_promotion()
 
 
 def test_take_pending_promotion_removes_the_entry():
     state = GameState()
-    state.schedule_promotion(Position(0, 1), "w", ("Q",))
+    state.schedule_promotion(Position(0, 1), "w", ("Q",), piece("wP"))
     taken = state.take_pending_promotion(Position(0, 1))
     assert taken.color == "w"
     assert not state.has_pending_promotion()
@@ -173,8 +218,8 @@ def test_take_pending_promotion_removes_the_entry():
 
 def test_pending_promotions_lists_every_pending_entry():
     state = GameState()
-    state.schedule_promotion(Position(0, 1), "w", ("Q",))
-    state.schedule_promotion(Position(3, 1), "b", ("Q",))
+    state.schedule_promotion(Position(0, 1), "w", ("Q",), piece("wP"))
+    state.schedule_promotion(Position(3, 1), "b", ("Q",), piece("bP"))
     positions = {pending.position for pending in state.pending_promotions()}
     assert positions == {Position(0, 1), Position(3, 1)}
 
