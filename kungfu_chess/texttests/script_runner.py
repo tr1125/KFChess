@@ -6,6 +6,8 @@ consumed, since this is the one place that constructs the engine and the
 board mapper.
 """
 
+import asyncio
+
 from kungfu_chess.io.board_parser import parse_board, BoardFormatError
 from kungfu_chess.io.board_printer import to_canonical
 from kungfu_chess.rules.piece_rules import default_piece_rules
@@ -66,13 +68,25 @@ def _dispatch(command, controller, engine, out):
             out.write(f"{pending['row']} {pending['col']} {pending['color']} {choices}\n")
 
 
-def build_engine(board):
+def build_engine(board, event_bus=None):
     """Wire a GameEngine from a parsed Board using the standard timing
     config. Exposed separately from run_script so other callers (e.g. a
     future live app.py view loop) can reuse the same wiring.
+
+    `event_bus` is optional (see server/bus.py) - GameEngine itself never
+    touches it (it only buffers events for drain_events(), see
+    engine/game_engine.py). "game_started" has no settlement-time trigger
+    of its own, so this composition root publishes it once, right here,
+    immediately after construction. This is a one-time, non-hot-path call,
+    so a plain asyncio.run() is fine for as long as this composition root
+    itself stays synchronous - once Stage 2 moves the composition root
+    into server/rooms.py running inside the server's own asyncio event
+    loop, asyncio.run() will raise there (can't be called from a running
+    loop) and this call needs to become a direct `await` instead. Don't
+    copy this exact call forward into that async context unchanged.
     """
     rule_engine = RuleEngine(default_piece_rules())
-    return GameEngine(
+    engine = GameEngine(
         board,
         rule_engine,
         move_duration_per_cell_ms=MOVE_DURATION_PER_CELL_MS,
@@ -80,6 +94,11 @@ def build_engine(board):
         long_rest_duration_ms=LONG_REST_DURATION_MS,
         short_rest_duration_ms=SHORT_REST_DURATION_MS,
     )
+    if event_bus is not None:
+        asyncio.run(event_bus.publish("game_started", {
+            "board_width": board.width, "board_height": board.height,
+        }))
+    return engine
 
 
 def run_script(text, out):

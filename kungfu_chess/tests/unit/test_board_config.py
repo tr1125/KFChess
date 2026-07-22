@@ -73,10 +73,10 @@ def test_load_board_config_reads_json_file_from_disk(tmp_path):
 def test_load_board_config_default_path_matches_recommended_values():
     config = load_board_config()
     assert config == BoardConfig(
-        image_width_px=822,
-        image_height_px=828,
-        margin_left_px=0,
-        margin_top_px=0,
-        cell_size_px=103,
+        image_width_px=847,
+        image_height_px=851,
+        margin_left_px=47,
+        margin_top_px=47,
+        cell_size_px=94,
         cell_size_meters=1.0,
     )

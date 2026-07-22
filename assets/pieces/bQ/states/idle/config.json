@@ -3,7 +3,7 @@
     "speed_m_per_sec": 0
   },
   "graphics": {
-    "frames_per_sec": 4,
+    "frames_per_sec": 16,
     "is_loop": true
   }
 }

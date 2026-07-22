@@ -68,21 +68,21 @@ def test_has_pending_move_from_false_for_other_cell():
     assert not tracker.has_pending_move_from(Position(5, 5))
 
 
-def test_has_opposing_color_in_flight_true_for_different_color():
+def test_tracker_holds_concurrent_pending_moves_for_both_colors_independently():
+    """Moves aren't serialized by color (UI_PLAN.md Sec 2 / GameState's
+    "not strictly alternating" design) - MotionTracker has no color
+    concept gating scheduling at all, so pieces of both colors can be
+    genuinely in flight at the same time, each tracked independently."""
     tracker = MotionTracker()
-    tracker.schedule_move(Position(0, 0), [Position(1, 1)], make_piece(color="w"), per_cell_ms=100, now_ms=0)
-    assert tracker.has_opposing_color_in_flight("b")
+    white = make_piece(color="w")
+    black = make_piece(color="b")
+    tracker.schedule_move(Position(0, 0), [Position(1, 1)], white, per_cell_ms=100, now_ms=0)
+    tracker.schedule_move(Position(5, 5), [Position(6, 6)], black, per_cell_ms=100, now_ms=0)
 
-
-def test_has_opposing_color_in_flight_false_for_same_color():
-    tracker = MotionTracker()
-    tracker.schedule_move(Position(0, 0), [Position(1, 1)], make_piece(color="w"), per_cell_ms=100, now_ms=0)
-    assert not tracker.has_opposing_color_in_flight("w")
-
-
-def test_has_opposing_color_in_flight_false_when_nothing_pending():
-    tracker = MotionTracker()
-    assert not tracker.has_opposing_color_in_flight("w")
+    white_current, white_target, _, _ = tracker.in_flight_leg(white)
+    black_current, black_target, _, _ = tracker.in_flight_leg(black)
+    assert (white_current, white_target) == (Position(0, 0), Position(1, 1))
+    assert (black_current, black_target) == (Position(5, 5), Position(6, 6))
 
 
 def test_take_due_moves_returns_move_exactly_at_completion_time():

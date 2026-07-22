@@ -35,15 +35,18 @@ class FakeController:
     def in_flight_leg(self, piece):
         return None
 
+    def selected(self):
+        return None
+
 
 class FakeView:
     def __init__(self):
         self.rendered_states = []
-        self.render_calls = []  # (game_state, now_ms, in_flight_leg)
+        self.render_calls = []  # (game_state, now_ms, in_flight_leg, selected)
 
-    def render_frame(self, game_state, now_ms=None, in_flight_leg=None):
+    def render_frame(self, game_state, now_ms=None, in_flight_leg=None, selected=None):
         self.rendered_states.append(game_state)
-        self.render_calls.append((game_state, now_ms, in_flight_leg))
+        self.render_calls.append((game_state, now_ms, in_flight_leg, selected))
         return f"frame:{game_state}"
 
 
@@ -66,7 +69,7 @@ def test_tick_renders_with_the_controllers_current_now_and_in_flight_leg():
 
     loop.tick()
 
-    game_state, now_ms, in_flight_leg = view.render_calls[0]
+    game_state, now_ms, in_flight_leg, _selected = view.render_calls[0]
     assert game_state == "state"
     assert now_ms == 777
     # Bound methods aren't singletons, so `is` never holds between two
@@ -120,7 +123,7 @@ class ArrayView:
     def __init__(self, native_w, native_h):
         self._frame = np.zeros((native_h, native_w, 3), dtype=np.uint8)
 
-    def render_frame(self, game_state, now_ms=None, in_flight_leg=None):
+    def render_frame(self, game_state, now_ms=None, in_flight_leg=None, selected=None):
         return self._frame
 
 
@@ -270,6 +273,9 @@ class FakePanelController:
         return 0
 
     def in_flight_leg(self, piece):
+        return None
+
+    def selected(self):
         return None
 
 
@@ -494,6 +500,9 @@ class FakePromotionController:
         return 0
 
     def in_flight_leg(self, piece):
+        return None
+
+    def selected(self):
         return None
 
     def has_moved_since_promotion(self, piece):

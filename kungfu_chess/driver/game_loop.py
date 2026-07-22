@@ -227,6 +227,7 @@ class GameLoop:
             self._controller.game_state(),
             now_ms=self._controller.now(),
             in_flight_leg=self._controller.in_flight_leg,
+            selected=self._controller.selected(),
         )
         if self._promotion_menu is not None:
             frame, self._menu_click_regions = self._render_promotion_menus(frame)

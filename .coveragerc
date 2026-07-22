@@ -1,6 +1,8 @@
 [run]
 branch = True
-source = kungfu_chess
+source =
+    kungfu_chess
+    server
 omit =
     */tests/*
     */test_*.py

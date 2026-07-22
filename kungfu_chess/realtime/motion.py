@@ -180,9 +180,6 @@ class MotionTracker:
     def has_pending_move_from(self, position):
         return any(move.current_position == position for move in self._pending_moves)
 
-    def has_opposing_color_in_flight(self, color):
-        return any(move.piece.color != color for move in self._pending_moves)
-
     def take_due_moves(self, now_ms):
         """Remove and return every move leg whose time has come; the
         rest stay pending. Does not touch piece.state - a due leg can end

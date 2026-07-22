@@ -188,18 +188,48 @@ def test_enemy_collision_capture_on_arrival():
     assert sig_row(board.rows()[0]) == [None, None, ("w", "R")]
 
 
-def test_premove_is_blocked_while_enemy_is_in_transit():
+def test_concurrent_cross_color_moves_both_proceed_when_paths_never_collide():
+    """Moves are not serialized by color (UI_PLAN.md Sec 2 / GameState's
+    "not strictly alternating" design) - a piece of one color being mid-
+    flight must not block a request for the other color's piece unless
+    their paths/destinations actually collide on the board. Here bR's
+    slide down column 0 and wK's diagonal step never share a square, so
+    both settle at their intended destinations despite genuinely
+    overlapping in flight (wK is requested at t=500, mid-way through
+    bR's still-incomplete first leg)."""
     rows = [["bR", ".", "."], [".", ".", "."], [".", ".", "wK"]]
     engine, board = make_engine(rows)
     engine.request_move(0, 0, 2, 0)  # bR -> (2, 0)
-    engine.wait(500)
-    engine.request_move(2, 2, 1, 1)  # attempt to move wK while bR still in flight - blocked
+    engine.wait(500)  # bR is genuinely still MOVING (mid first leg) here
+    engine.request_move(2, 2, 1, 1)  # wK -> (1, 1): unrelated square, must not be blocked
     engine.wait(2000)
     assert sig_rows(board.rows()) == [
         [None, None, None],
-        [None, None, None],
-        [("b", "R"), None, ("w", "K")],
+        [None, ("w", "K"), None],
+        [("b", "R"), None, None],
     ]
+
+
+def test_concurrent_cross_color_moves_collide_correctly_when_paths_actually_cross():
+    """The flip side of the test above: when two opposite-color pieces
+    really are both in flight at once and their paths genuinely converge
+    on the same square, ordinary per-square collision rules (not color)
+    decide the outcome. Both moves are requested in the same tick - under
+    the old has_opposing_color_in_flight gate, wR's request would have
+    been rejected outright here since bB was already in flight. Now bB
+    (one diagonal step) lands first and grounds itself at (0, 2); wR's
+    slower second leg then discovers a grounded enemy there and captures
+    it, exactly like the stationary-enemy case in
+    test_enemy_collision_capture_on_arrival - the only difference is the
+    enemy got there via its own concurrent move instead of starting
+    there."""
+    rows = [["wR", ".", "."], [".", "bB", "."]]
+    engine, board = make_engine(rows)
+    engine.request_move(1, 1, 0, 2)  # bB -> (0, 2): one diagonal step, completes at t=1000
+    engine.request_move(0, 0, 0, 2)  # wR -> (0, 2): 2-cell slide, second leg due at t=2000
+    engine.wait(2000)
+    assert sig_rows(board.rows()) == [[None, None, ("w", "R")], [None, None, None]]
+    assert engine.scores() == {"w": 3, "b": 0}  # bishop (3) credited to white
 
 
 def test_friendly_piece_at_destination_cancels_in_transit_move():
@@ -262,13 +292,14 @@ def test_multi_cell_slide_captures_a_mid_path_enemy_and_stops_there_without_cont
     originally-requested path is discarded (UI_PLAN.md Sec 2: "just re-
     evaluated per step", matching SlidePattern's own semantics).
 
-    Opposite colors can never be concurrently in flight
-    (has_opposing_color_in_flight), so the only way an enemy piece can
-    newly "appear" as a grounded obstacle mid-slide - rather than already
-    being a known blocker at request time - is if it was airborne (and
-    therefore passable/legal to slide onto) when the slide was requested,
-    then lands and grounds itself again partway through the slide's
-    journey. Jumping isn't gated by color concurrency at all.
+    Here the enemy specifically starts the slide airborne (and therefore
+    passable/legal to slide onto at request time), then lands and grounds
+    itself again partway through the slide's journey - one way a grounded
+    enemy can newly "appear" as a mid-slide obstacle rather than already
+    being a known blocker at request time. (A concurrent opposing-color
+    move settling onto the path mid-flight is another, covered by
+    test_concurrent_cross_color_moves_both_proceed_when_paths_never_collide
+    and its sibling collision cases above.)
     """
     rows = [["wR", ".", "bB", "."]]
     engine, board = make_engine(rows)
@@ -680,3 +711,101 @@ def test_engine_uses_injected_motion_and_arbiter():
 
     engine.request_move(2, 2, 2, 0)
     assert motion.has_pending_move_from(Position(2, 2))
+
+
+# --- drain_events (Stage 1 bus wiring: server/bus.py) ---
+#
+# GameEngine never talks to an EventBus directly (see server/bus.py) - it
+# just buffers plain (topic, payload) tuples at its existing settlement
+# points and hands them over via drain_events(), leaving any actual
+# publish()-ing to whoever wires a real bus in later stages.
+
+def test_drain_events_after_a_settled_move_with_no_capture():
+    rows = [["wK", ".", "."], [".", ".", "."], [".", ".", "."]]
+    engine, board = make_engine(rows)
+    engine.request_move(0, 0, 1, 1)
+    engine.wait(1000)
+
+    assert engine.drain_events() == [
+        ("move_made", {"color": "w", "from": "a3", "to": "b2"}),
+    ]
+
+
+def test_drain_events_is_empty_until_something_settles_and_clears_after_draining():
+    rows = [["wK", ".", "."], [".", ".", "."], [".", ".", "."]]
+    engine, _board = make_engine(rows)
+    assert engine.drain_events() == []
+
+    engine.request_move(0, 0, 1, 1)
+    assert engine.drain_events() == []  # nothing has settled yet - still mid-flight
+
+    engine.wait(1000)
+    assert engine.drain_events() != []
+    assert engine.drain_events() == []  # already drained once - nothing left
+
+
+def test_drain_events_includes_score_updated_on_a_capture():
+    rows = [["wR", ".", "bP"]]
+    engine, board = make_engine(rows)
+    engine.request_move(0, 0, 0, 2)
+    engine.wait(2000)
+
+    assert engine.drain_events() == [
+        # Only the final settling leg is recorded (same as
+        # GameState.record_move) - "from" is where that leg began (b1),
+        # not the original two-cell request's origin (a1).
+        ("move_made", {"color": "w", "from": "b1", "to": "c1"}),
+        ("score_updated", {"scores": {"w": 1, "b": 0}}),
+    ]
+
+
+def test_drain_events_after_a_move_stopped_by_a_friendly_block():
+    rows = [["wR", ".", "."], [".", ".", "wK"]]
+    engine, board = make_engine(rows)
+    engine.request_move(1, 2, 0, 2)  # wK -> (0, 2), claims the destination first
+    engine.request_move(0, 0, 0, 2)  # wR -> (0, 2): stops early on the friendly block
+    engine.wait(2000)
+
+    assert engine.drain_events() == [
+        ("move_made", {"color": "w", "from": "c1", "to": "c2"}),  # wK's settled move
+        ("move_made", {"color": "w", "from": "b2", "to": "b2"}),  # wR stopped at (0, 1)
+    ]
+
+
+def test_drain_events_includes_game_ended_on_a_king_capture():
+    rows = [["wR", ".", "bK"], [".", ".", "."]]
+    engine, board = make_engine(rows)
+    engine.request_move(0, 0, 0, 2)
+    engine.wait(2000)
+
+    events = engine.drain_events()
+    assert ("game_ended", {"winner": "w"}) in events
+    # A king is worth 0 (see PIECE_VALUES), so capturing one never actually
+    # moves the score - no score_updated is expected here.
+    assert all(topic != "score_updated" for topic, _payload in events)
+
+
+def test_drain_events_for_an_airborne_capture_includes_move_made_and_score_updated():
+    rows = [[".", ".", "."], [".", "wK", "bR"], [".", ".", "."]]
+    engine, board = make_engine(rows)
+    engine.jump(1, 1)
+    engine.request_move(1, 2, 1, 1)
+    engine.wait(1000)
+
+    assert engine.drain_events() == [
+        ("move_made", {"color": "b", "from": "c2", "to": "b2"}),  # bR's ordinary move
+        ("move_made", {"color": "w", "from": "b2", "to": "b2"}),  # wK reclaims its cell
+        ("score_updated", {"scores": {"w": 5, "b": 0}}),
+    ]
+
+
+def test_drain_events_for_an_airborne_capture_of_a_king_includes_game_ended():
+    rows = [[".", ".", "."], [".", "wK", "bK"], [".", ".", "."]]
+    engine, board = make_engine(rows)
+    engine.jump(1, 1)
+    engine.request_move(1, 2, 1, 1)
+    engine.wait(1000)
+
+    assert engine.is_game_over()
+    events = engine.drain_events()
+    assert ("game_ended", {"winner": "w"}) in events

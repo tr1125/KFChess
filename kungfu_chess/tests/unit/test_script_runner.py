@@ -8,6 +8,7 @@ import io
 from kungfu_chess.model.board import Board
 from kungfu_chess.model.piece import Piece
 from kungfu_chess.texttests.script_runner import run_script, build_engine
+from server.bus import EventBus
 
 
 def run_and_capture(input_text):
@@ -87,3 +88,23 @@ def test_run_script_print_promotions_empty_when_nothing_pending():
 def test_run_script_ignores_an_unrecognized_command():
     input_text = "Board:\nwK . bK\nCommands:\nfoobar\nprint board\n"
     assert run_and_capture(input_text) == "wK . bK\n"
+
+
+def test_build_engine_with_no_event_bus_is_unaffected():
+    # Every existing caller passes just `board` - this must keep working
+    # exactly as before (see server plan Stage 1 acceptance criteria).
+    engine = build_engine(Board([[Piece(color="w", kind="K"), None]]))
+    assert not engine.is_game_over()
+
+
+def test_build_engine_publishes_game_started_when_given_a_bus():
+    bus = EventBus()
+    received = []
+
+    async def on_game_started(payload):
+        received.append(payload)
+
+    bus.subscribe("game_started", on_game_started)
+    build_engine(Board([[Piece(color="w", kind="K"), None]]), event_bus=bus)
+
+    assert received == [{"board_width": 2, "board_height": 1}]

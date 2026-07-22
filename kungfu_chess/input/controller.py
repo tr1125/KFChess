@@ -55,6 +55,9 @@ class Controller:
         self._player_session.claim(piece.color)
         self._selected = position
 
+    def selected(self):
+        return self._selected
+
     def _selected_piece(self):
         return self._piece_at(self._selected)
 

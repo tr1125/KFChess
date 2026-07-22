@@ -22,6 +22,7 @@ from kungfu_chess.input.controller import Controller
 from kungfu_chess.config.board_config import load_board_config
 from kungfu_chess.config.panel_config import load_panel_config
 from kungfu_chess.config.promotion_menu_config import load_promotion_menu_config
+from kungfu_chess.config.selection_config import load_selection_config
 from kungfu_chess.config.sprite_state_mapping import load_sprite_state_mapping
 from kungfu_chess.view.opencv_view import OpenCvView
 from kungfu_chess.view.promotion_menu_view import PromotionMenuView
@@ -60,6 +61,7 @@ def main():
         load_sprite_state_mapping(),
         assets_pieces_dir=str(ASSETS_PIECES_DIR),
         board_image_path=str(BOARD_IMAGE_PATH),
+        selection_config=load_selection_config(),
     )
     panel_config = load_panel_config()
     panels = PanelSet(

@@ -36,7 +36,7 @@ without reaching into GameEngine internals.
 """
 
 from kungfu_chess.model.piece import PieceState
-from kungfu_chess.model.position import Position
+from kungfu_chess.model.position import Position, square_name
 from kungfu_chess.model.game_state import GameState
 from kungfu_chess.realtime.motion import ManualClock, MotionTracker
 from kungfu_chess.realtime.real_time_arbiter import RealTimeArbiter, CollisionKind
@@ -72,6 +72,7 @@ class GameEngine:
         self._jump_duration_ms = jump_duration_ms
         self._long_rest_duration_ms = long_rest_duration_ms
         self._short_rest_duration_ms = short_rest_duration_ms
+        self._pending_events = []
 
     def board(self):
         return self._board
@@ -79,6 +80,16 @@ class GameEngine:
     def game_state(self):
         """The read-only snapshot the view layer draws from."""
         return self._game_state
+
+    def drain_events(self):
+        """Remove and return every (topic, payload) event buffered since
+        the last call, oldest first. GameEngine never touches an
+        EventBus (see server/bus.py) or asyncio itself - it stays fully
+        synchronous, so any caller wanting to actually publish these onto
+        a bus is responsible for draining and awaiting publish() itself.
+        """
+        events, self._pending_events = self._pending_events, []
+        return events
 
     def now(self):
         """The engine's own clock reading in ms (see realtime.motion.
@@ -197,7 +208,13 @@ class GameEngine:
                 ends_game = self._rule_engine.settle_airborne_capture(
                     self._board, self._game_state, occupant, jump.piece, jump.position, jump.position
                 )
+                landing_square = square_name(jump.position, self._board.height)
+                self._pending_events.append(("move_made", {
+                    "color": jump.piece.color, "from": landing_square, "to": landing_square,
+                }))
+                self._pending_events.append(("score_updated", {"scores": self._game_state.scores()}))
                 if ends_game:
+                    self._pending_events.append(("game_ended", {"winner": jump.piece.color}))
                     self._clear_all_motion()
                     return
             else:
@@ -219,12 +236,6 @@ class GameEngine:
             )
 
     def _try_request_move(self, source, destination, selected_piece):
-        if self._motion.has_opposing_color_in_flight(selected_piece.color):
-            # Opposite colors cannot move concurrently: while any piece of
-            # the other color is still in transit, a new move cannot be
-            # scheduled. Same-color pieces are unaffected.
-            return
-
         is_legal = self._rule_engine.is_legal_move(selected_piece, self._board, source, destination)
         if not is_legal:
             return
@@ -282,12 +293,29 @@ class GameEngine:
         self._rule_engine.settle_stopped_move(
             self._board, self._game_state, move.piece, move.current_position, move.current_position
         )
+        stopped_square = square_name(move.current_position, self._board.height)
+        self._pending_events.append(("move_made", {
+            "color": move.piece.color, "from": stopped_square, "to": stopped_square,
+        }))
         self._motion.begin_rest(
             move.piece, PieceState.LONG_REST, self._clock.now() + self._long_rest_duration_ms, self._clock.now()
         )
 
     def _finish_leg_and_settle(self, move, stop_at):
-        self._rule_engine.settle_clear_move(self._board, self._game_state, move.piece, move.current_position, stop_at)
+        scores_before = self._game_state.scores()
+        ends_game = self._rule_engine.settle_clear_move(
+            self._board, self._game_state, move.piece, move.current_position, stop_at
+        )
+        self._pending_events.append(("move_made", {
+            "color": move.piece.color,
+            "from": square_name(move.current_position, self._board.height),
+            "to": square_name(stop_at, self._board.height),
+        }))
+        scores_after = self._game_state.scores()
+        if scores_after != scores_before:
+            self._pending_events.append(("score_updated", {"scores": scores_after}))
+        if ends_game:
+            self._pending_events.append(("game_ended", {"winner": move.piece.color}))
         if self._game_state.is_game_over():
             return
         self._motion.begin_rest(

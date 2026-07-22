@@ -26,6 +26,7 @@ import os
 import cv2
 import numpy as np
 
+from kungfu_chess.config.selection_config import load_selection_config
 from kungfu_chess.config.sprite_state_mapping import folder_for_state_name
 from kungfu_chess.view.animation_clock import frame_index
 from kungfu_chess.view.renderer import BoardRenderer
@@ -105,6 +106,7 @@ class OpenCvView:
         sprite_registry=None,
         board_image=None,
         static_frame_filename="1.png",
+        selection_config=None,
     ):
         self._sprite_state_mapping = sprite_state_mapping
         self._assets_pieces_dir = assets_pieces_dir
@@ -115,13 +117,14 @@ class OpenCvView:
         )
         self._board_image = board_image
         self._static_frame_filename = static_frame_filename
+        self._selection_config = selection_config if selection_config is not None else load_selection_config()
         self._renderer = BoardRenderer(
             cell_size_px=board_config.cell_size_px,
             margin_left_px=board_config.margin_left_px,
             margin_top_px=board_config.margin_top_px,
         )
 
-    def render_frame(self, game_state, now_ms=None, in_flight_leg=None):
+    def render_frame(self, game_state, now_ms=None, in_flight_leg=None, selected=None):
         """Return a numpy BGR array: the board background composited with
         one sprite per occupied cell. Never opens a window - that is the
         caller's job (see scripts/render_static_board.py).
@@ -130,13 +133,25 @@ class OpenCvView:
         the Step 3 static-only behavior (see module docstring) - the
         caller (driver/game_loop.py) is the only place that supplies
         them for a live, animated game.
+
+        selected is an optional Position (row/col) of the currently
+        selected piece's square - when given, its cell is outlined so the
+        player can see what they've picked.
         """
         canvas = self._load_board_image().copy()
         for cell in self._renderer.render(game_state):
             if cell.piece is None:
                 continue
             self._draw_piece(canvas, cell, now_ms, in_flight_leg)
+        if selected is not None:
+            self._draw_selection(canvas, selected)
         return canvas
+
+    def _draw_selection(self, canvas, selected):
+        x_px, y_px = self._renderer.pixel_position(selected.row, selected.col)
+        size_px = self._renderer.cell_size_px
+        config = self._selection_config
+        cv2.rectangle(canvas, (x_px, y_px), (x_px + size_px - 1, y_px + size_px - 1), config.color, config.thickness)
 
     def _load_board_image(self):
         if self._board_image is None:
