@@ -163,6 +163,29 @@ def test_moves_for_color_does_not_affect_move_history_or_history_text():
     assert state.history_text() == "e4 d5"
 
 
+def test_history_entries_returns_color_and_notation_tuples():
+    state = GameState()
+    state.record_move(empty_board(), piece("wP"), Position(6, 4), Position(4, 4))
+    state.record_move(empty_board(), piece("bP"), Position(1, 3), Position(3, 3))
+    assert state.history_entries() == [("w", "e4"), ("b", "d5")]
+
+
+def test_history_entries_returns_a_defensive_copy():
+    state = GameState()
+    state.record_move(empty_board(), piece("wP"), Position(6, 4), Position(4, 4))
+    snapshot = state.history_entries()
+    snapshot.append(("b", "bogus"))
+    assert state.history_entries() == [("w", "e4")]
+
+
+def test_restore_history_replaces_entries_wholesale():
+    state = GameState()
+    state.record_move(empty_board(), piece("wP"), Position(6, 4), Position(4, 4))
+    state.restore_history([("w", "e4"), ("b", "d5")])
+    assert state.move_history() == ["e4", "d5"]
+    assert state.moves_for_color("b") == ["d5"]
+
+
 # --- scores ---
 
 def test_new_state_scores_start_at_zero_for_both_colors():

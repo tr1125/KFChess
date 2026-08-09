@@ -107,6 +107,7 @@ class OpenCvView:
         board_image=None,
         static_frame_filename="1.png",
         selection_config=None,
+        flipped=False,
     ):
         self._sprite_state_mapping = sprite_state_mapping
         self._assets_pieces_dir = assets_pieces_dir
@@ -122,6 +123,7 @@ class OpenCvView:
             cell_size_px=board_config.cell_size_px,
             margin_left_px=board_config.margin_left_px,
             margin_top_px=board_config.margin_top_px,
+            flipped=flipped,
         )
 
     def render_frame(self, game_state, now_ms=None, in_flight_leg=None, selected=None):
@@ -138,17 +140,18 @@ class OpenCvView:
         selected piece's square - when given, its cell is outlined so the
         player can see what they've picked.
         """
+        board_height, board_width = game_state.board_height(), game_state.board_width()
         canvas = self._load_board_image().copy()
         for cell in self._renderer.render(game_state):
             if cell.piece is None:
                 continue
-            self._draw_piece(canvas, cell, now_ms, in_flight_leg)
+            self._draw_piece(canvas, cell, now_ms, in_flight_leg, board_height, board_width)
         if selected is not None:
-            self._draw_selection(canvas, selected)
+            self._draw_selection(canvas, selected, board_height, board_width)
         return canvas
 
-    def _draw_selection(self, canvas, selected):
-        x_px, y_px = self._renderer.pixel_position(selected.row, selected.col)
+    def _draw_selection(self, canvas, selected, board_height, board_width):
+        x_px, y_px = self._renderer.pixel_position(selected.row, selected.col, board_height, board_width)
         size_px = self._renderer.cell_size_px
         config = self._selection_config
         cv2.rectangle(canvas, (x_px, y_px), (x_px + size_px - 1, y_px + size_px - 1), config.color, config.thickness)
@@ -158,7 +161,7 @@ class OpenCvView:
             self._board_image = self._sprite_cache.get(self._board_image_path)[:, :, :3]
         return self._board_image
 
-    def _draw_piece(self, canvas, cell, now_ms, in_flight_leg):
+    def _draw_piece(self, canvas, cell, now_ms, in_flight_leg, board_height, board_width):
         piece = cell.piece
         path = self._static_sprite_path(piece) if now_ms is None else self._animated_sprite_path(piece, now_ms)
         if path is None:
@@ -166,7 +169,7 @@ class OpenCvView:
 
         sprite = self._sprite_cache.get(path)
         resized = cv2.resize(sprite, (cell.size_px, cell.size_px), interpolation=cv2.INTER_AREA)
-        x_px, y_px = self._piece_position_px(cell, now_ms, in_flight_leg)
+        x_px, y_px = self._piece_position_px(cell, now_ms, in_flight_leg, board_height, board_width)
         alpha_composite(canvas, resized, x_px, y_px)
 
     def _static_sprite_path(self, piece):
@@ -189,7 +192,7 @@ class OpenCvView:
         index = frame_index(elapsed_ms, sprite_set.frames_per_sec, sprite_set.num_frames, sprite_set.is_loop)
         return sprite_set.frame_paths[index]
 
-    def _piece_position_px(self, cell, now_ms, in_flight_leg):
+    def _piece_position_px(self, cell, now_ms, in_flight_leg, board_height, board_width):
         """A piece's pixel position is normally just its current board
         cell. It only glides between two cells while MOVING with an
         active in-flight leg - every other state (IDLE, LONG_REST,
@@ -208,8 +211,8 @@ class OpenCvView:
 
         current_position, leg_target, leg_started_at_ms, complete_at_ms = leg
         progress = (now_ms - leg_started_at_ms) / (complete_at_ms - leg_started_at_ms)
-        start_x, start_y = self._renderer.pixel_position(current_position.row, current_position.col)
-        end_x, end_y = self._renderer.pixel_position(leg_target.row, leg_target.col)
+        start_x, start_y = self._renderer.pixel_position(current_position.row, current_position.col, board_height, board_width)
+        end_x, end_y = self._renderer.pixel_position(leg_target.row, leg_target.col, board_height, board_width)
         return (
             round(start_x + (end_x - start_x) * progress),
             round(start_y + (end_y - start_y) * progress),

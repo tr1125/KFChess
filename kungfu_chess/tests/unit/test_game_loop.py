@@ -306,7 +306,9 @@ def wheel_flags(raw_delta):
     return (raw_delta & 0xFFFF) << 16
 
 
-def make_panel_loop(fake_cv2, moves=None, panel_width_px=50, line_height_px=10, native_w=200, native_h=100):
+def make_panel_loop(
+    fake_cv2, moves=None, panel_width_px=50, line_height_px=10, native_w=200, native_h=100, ratings=None
+):
     game_state = FakePanelGameState(
         scores={"w": 0, "b": 0}, moves=moves or {"w": [], "b": []}
     )
@@ -319,6 +321,7 @@ def make_panel_loop(fake_cv2, moves=None, panel_width_px=50, line_height_px=10, 
         left_color="w",
         right_color="b",
         panel_config=make_panel_config(panel_width_px, line_height_px),
+        ratings=ratings,
     )
     loop = GameLoop(controller, ArrayView(native_w=native_w, native_h=native_h), FakeTimeSource([0.0]), panels=panels)
     return loop, left_view, right_view
@@ -354,6 +357,32 @@ def test_run_renders_each_panel_with_its_assigned_colors_data_and_computed_width
     assert right_data.color == "b"
     assert right_data.moves == ["d5"]
     assert right_width == 50
+
+
+def test_run_passes_each_side_its_own_rating_when_ratings_are_configured(monkeypatch):
+    fake_cv2 = FakeCv2(quit_key=ord("q"))
+    monkeypatch.setattr("kungfu_chess.driver.game_loop.cv2", fake_cv2)
+
+    loop, left_view, right_view = make_panel_loop(
+        fake_cv2, ratings={"w": 1350, "b": 1200}, native_w=200, native_h=100
+    )
+    loop.run("win")
+
+    left_data, _height, _scroll, _width = left_view.calls[0]
+    right_data, _height, _scroll, _width = right_view.calls[0]
+    assert left_data.rating == 1350
+    assert right_data.rating == 1200
+
+
+def test_run_leaves_rating_none_when_ratings_are_not_configured(monkeypatch):
+    fake_cv2 = FakeCv2(quit_key=ord("q"))
+    monkeypatch.setattr("kungfu_chess.driver.game_loop.cv2", fake_cv2)
+
+    loop, left_view, _right = make_panel_loop(fake_cv2, native_w=200, native_h=100)
+    loop.run("win")
+
+    left_data, _height, _scroll, _width = left_view.calls[0]
+    assert left_data.rating is None
 
 
 def test_run_drops_clicks_landing_on_the_left_panel(monkeypatch):
@@ -475,6 +504,15 @@ class FakePromotionGameState:
 
     def pending_promotions(self):
         return list(self._pending)
+
+    def board_height(self):
+        # Unused by pixel_position() unless the BoardRenderer is flipped
+        # (not the case in these tests) - present only to satisfy the
+        # game_state interface GameLoop now calls unconditionally.
+        return 0
+
+    def board_width(self):
+        return 0
 
 
 def pending_promotion_for(piece, color=None, choices=("Q", "R", "B", "N")):

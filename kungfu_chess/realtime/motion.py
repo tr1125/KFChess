@@ -112,11 +112,14 @@ class MotionTracker:
         per leg, in order), taking `per_cell_ms` per cell of this leg's own
         Chebyshev distance to cross - not a flat `per_cell_ms` regardless of
         span (see module docstring: a knight's single StepPattern leg still
-        covers 2 cells and must take 2x as long as a 1-cell leg).
+        covers 2 cells and must take 2x as long as a 1-cell leg). Returns
+        the scheduled PendingMove so a caller (see GameEngine's
+        "move_started" event) can read its leg_target/timing without
+        recomputing chebyshev_distance a second time.
         """
         leg_target = path[0]
         leg_duration_ms = chebyshev_distance(from_position, leg_target) * per_cell_ms
-        self._pending_moves.append(PendingMove(
+        move = PendingMove(
             current_position=from_position,
             leg_target=leg_target,
             remaining_path=tuple(path[1:]),
@@ -124,9 +127,11 @@ class MotionTracker:
             complete_at_ms=now_ms + leg_duration_ms,
             piece=piece,
             steps_completed=0,
-        ))
+        )
+        self._pending_moves.append(move)
         piece.state = PieceState.MOVING
         piece.state_entered_at = now_ms
+        return move
 
     def schedule_next_leg(self, move, per_cell_ms):
         """Continue an in-flight move to its next leg once the current
@@ -147,12 +152,13 @@ class MotionTracker:
         are left untouched here - only the pending entry's current/target
         cells advance. This next leg's own duration is likewise scaled by
         its own Chebyshev distance (leg_target to next_target), same as
-        schedule_move - see module docstring.
+        schedule_move - see module docstring. Returns the scheduled
+        PendingMove, same reason as schedule_move.
         """
         next_target = move.remaining_path[0]
         leg_started_at_ms = move.complete_at_ms
         leg_duration_ms = chebyshev_distance(move.leg_target, next_target) * per_cell_ms
-        self._pending_moves.append(PendingMove(
+        next_move = PendingMove(
             current_position=move.leg_target,
             leg_target=next_target,
             remaining_path=move.remaining_path[1:],
@@ -160,7 +166,9 @@ class MotionTracker:
             complete_at_ms=leg_started_at_ms + leg_duration_ms,
             piece=move.piece,
             steps_completed=move.steps_completed + 1,
-        ))
+        )
+        self._pending_moves.append(next_move)
+        return next_move
 
     def in_flight_leg(self, piece):
         """The (current_position, leg_target, leg_started_at_ms,
@@ -242,12 +250,20 @@ class MotionTracker:
         piece.state_entered_at = now_ms
 
     def wake_due_rests(self, now_ms):
-        """Wake every resting piece whose rest is over, back to IDLE."""
+        """Wake every resting piece whose rest is over, back to IDLE.
+        Returns the list of woken pieces - GameEngine uses this to emit a
+        "rest_over" event (see engine/game_engine.py), since this is the
+        one piece-state transition with no move/jump/score event of its
+        own already covering it (a networked client only learns about
+        board changes via broadcast events, unlike local play, which
+        reads the same live GameState object directly).
+        """
         woken = [resting for resting in self._resting if resting.rest_over_ms <= now_ms]
         self._resting = [resting for resting in self._resting if resting.rest_over_ms > now_ms]
         for resting in woken:
             resting.piece.state = PieceState.IDLE
             resting.piece.state_entered_at = now_ms
+        return [resting.piece for resting in woken]
 
     def clear_rests(self, now_ms):
         for resting in self._resting:

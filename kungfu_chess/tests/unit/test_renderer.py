@@ -81,3 +81,33 @@ def test_pixel_position_works_for_a_cell_with_no_piece_and_off_the_current_board
 def test_cell_size_px_exposes_the_configured_cell_size():
     renderer = BoardRenderer(cell_size_px=77, margin_left_px=5, margin_top_px=0)
     assert renderer.cell_size_px == 77
+
+
+# --- flipped orientation (networked Black client) ---
+
+def test_pixel_position_mirrors_row_and_col_when_flipped():
+    renderer = BoardRenderer(cell_size_px=100, flipped=True)
+    # Logical (0, 0) on a 2x2 board is the bottom-right in display space.
+    assert renderer.pixel_position(0, 0, board_height=2, board_width=2) == (100, 100)
+    assert renderer.pixel_position(1, 1, board_height=2, board_width=2) == (0, 0)
+
+
+def test_render_places_logical_row_0_at_the_bottom_when_flipped():
+    state, board = make_game_state([["wK", "."], [".", "bK"]])
+    cells = BoardRenderer(cell_size_px=100, flipped=True).render(state)
+    pixels = {(cell.row, cell.col): (cell.x_px, cell.y_px) for cell in cells}
+    assert pixels[(0, 0)] == (100, 100)  # logical top-left drawn bottom-right
+    assert pixels[(1, 1)] == (0, 0)  # logical bottom-right drawn top-left
+
+
+def test_render_keeps_cellview_row_col_logical_even_when_flipped():
+    state, board = make_game_state([["wK", "."], [".", "bK"]])
+    cells = BoardRenderer(cell_size_px=100, flipped=True).render(state)
+    pieces = {(cell.row, cell.col): cell.piece for cell in cells}
+    assert pieces[(0, 0)] is board.get(0, 0)
+    assert pieces[(1, 1)] is board.get(1, 1)
+
+
+def test_pixel_position_unflipped_ignores_board_dimensions():
+    renderer = BoardRenderer(cell_size_px=100)
+    assert renderer.pixel_position(1, 1) == (100, 100)

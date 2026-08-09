@@ -104,7 +104,9 @@ class PanelSet:
     (arbitrary/cosmetic - see app_ui.py); panel_config supplies both
     panel_width_px (for panel_layout) and line_height_px (needed here
     too, so scroll-offset clamping agrees with what SidePanelView itself
-    will render at that same height).
+    will render at that same height). ratings is an optional
+    color -> rating dict (Stage 3) - None (the default) renders exactly
+    as before rating existed.
     """
 
     left_view: object
@@ -112,6 +114,7 @@ class PanelSet:
     left_color: str
     right_color: str
     panel_config: object
+    ratings: dict = None
 
 
 @dataclass(frozen=True)
@@ -239,9 +242,12 @@ class GameLoop:
         promo = self._promotion_menu
         board_h, board_w = board_frame.shape[0], board_frame.shape[1]
         click_regions = []
+        game_state = self._controller.game_state()
 
         for piece, menu in self._open_promotion_menus.items():
-            square_x, square_y = promo.board_renderer.pixel_position(piece.cell.row, piece.cell.col)
+            square_x, square_y = promo.board_renderer.pixel_position(
+                piece.cell.row, piece.cell.col, game_state.board_height(), game_state.board_width()
+            )
             menu_frame = promo.view.render_frame(PromotionMenuData(color=menu.color, choices=menu.choices))
             menu_h, menu_w = menu_frame.shape[0], menu_frame.shape[1]
 
@@ -360,7 +366,8 @@ class GameLoop:
             return  # wheel motion over the board - no-op
 
         game_state = self._controller.game_state()
-        data = snapshot_for_color(game_state, color)
+        ratings = self._panels.ratings
+        data = snapshot_for_color(game_state, color, rating=ratings.get(color) if ratings else None)
         viewport_lines = click_state["window_h"] // self._panels.panel_config.line_height_px
 
         delta = wheel_delta_from_flags(flags)
@@ -376,8 +383,13 @@ class GameLoop:
         )
         viewport_lines = window_h // panels.panel_config.line_height_px
 
-        left_data = snapshot_for_color(game_state, panels.left_color)
-        right_data = snapshot_for_color(game_state, panels.right_color)
+        ratings = panels.ratings
+        left_data = snapshot_for_color(
+            game_state, panels.left_color, rating=ratings.get(panels.left_color) if ratings else None
+        )
+        right_data = snapshot_for_color(
+            game_state, panels.right_color, rating=ratings.get(panels.right_color) if ratings else None
+        )
         self._scroll_offsets["left"] = clamp_scroll_offset(
             self._scroll_offsets["left"], len(left_data.moves), viewport_lines
         )

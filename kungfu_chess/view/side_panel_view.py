@@ -39,8 +39,11 @@ class SidePanelView:
         canvas = np.full((height_px, width_px, 3), config.background_color, dtype=np.uint8)
 
         label = config.labels.get(panel_data.color, panel_data.color)
+        header_text = f"{label}: {panel_data.score}"
+        if panel_data.rating is not None:
+            header_text += f"  (rating {panel_data.rating})"
         header_y = config.padding_px + config.line_height_px
-        self._draw_line(canvas, f"{label}: {panel_data.score}", header_y)
+        self._draw_line(canvas, header_text, header_y)
 
         list_top_y = header_y + config.line_height_px
         available_height = max(0, height_px - list_top_y)

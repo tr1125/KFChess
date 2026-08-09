@@ -117,6 +117,21 @@ class GameEngine:
     def is_game_over(self):
         return self._game_state.is_game_over()
 
+    def force_draw(self):
+        """Externally-triggered draw for a condition GameEngine doesn't
+        track on its own (e.g. King-vs-King insufficient material - see
+        server/rating.py.is_king_vs_king, called from Room). No-op if
+        the game already ended some other way. Mirrors the exact same
+        game_over/pending-events mechanism every other game-ending path
+        already uses - nothing calls this unless a caller (e.g. Room)
+        explicitly decides to.
+        """
+        if self._game_state.is_game_over():
+            return
+        self._game_state.set_game_over()
+        self._pending_events.append(("game_ended", {"winner": None}))
+        self._clear_all_motion()
+
     def move_history(self):
         """Settled moves so far, in algebraic notation, oldest first."""
         return self._game_state.move_history()
@@ -181,6 +196,11 @@ class GameEngine:
 
         land_at = self._clock.now() + self._jump_duration_ms
         self._motion.schedule_jump(position, piece, land_at, self._clock.now())
+        square = square_name(position, self._board.height)
+        self._pending_events.append(("move_started", {
+            "color": piece.color, "kind": piece.kind,
+            "from": square, "to": square, "duration_ms": self._jump_duration_ms,
+        }))
 
     def wait(self, ms):
         if self._is_paused():
@@ -188,7 +208,11 @@ class GameEngine:
         self._clock.advance(ms)
         self._settle_due_moves()
         self._land_due_jumps()
-        self._motion.wake_due_rests(self._clock.now())
+        for piece in self._motion.wake_due_rests(self._clock.now()):
+            self._pending_events.append(("rest_over", {
+                "color": piece.color, "kind": piece.kind,
+                "square": square_name(piece.cell, self._board.height),
+            }))
 
     def _clear_all_motion(self):
         now = self._clock.now()
@@ -241,7 +265,15 @@ class GameEngine:
             return
 
         path = self._rule_engine.path_for_move(selected_piece, self._board, source, destination)
-        self._motion.schedule_move(source, path, selected_piece, self._move_duration_per_cell_ms, self._clock.now())
+        move = self._motion.schedule_move(
+            source, path, selected_piece, self._move_duration_per_cell_ms, self._clock.now()
+        )
+        self._pending_events.append(("move_started", {
+            "color": selected_piece.color, "kind": selected_piece.kind,
+            "from": square_name(source, self._board.height),
+            "to": square_name(move.leg_target, self._board.height),
+            "duration_ms": move.complete_at_ms - move.leg_started_at_ms,
+        }))
 
     def _settle_due_moves(self):
         while True:
@@ -276,7 +308,13 @@ class GameEngine:
                 move.current_position.row, move.current_position.col,
                 move.leg_target.row, move.leg_target.col,
             )
-            self._motion.schedule_next_leg(move, self._move_duration_per_cell_ms)
+            next_move = self._motion.schedule_next_leg(move, self._move_duration_per_cell_ms)
+            self._pending_events.append(("move_started", {
+                "color": move.piece.color, "kind": move.piece.kind,
+                "from": square_name(next_move.current_position, self._board.height),
+                "to": square_name(next_move.leg_target, self._board.height),
+                "duration_ms": next_move.complete_at_ms - next_move.leg_started_at_ms,
+            }))
         else:
             self._finish_leg_and_settle(move, move.leg_target)
 

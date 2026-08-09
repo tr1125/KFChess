@@ -51,6 +51,26 @@ def test_render_frame_draws_header_with_label_and_score(monkeypatch):
     assert calls[0][0] == "White: 7"
 
 
+def test_render_frame_appends_rating_to_the_header_when_set(monkeypatch):
+    calls = make_recording_put_text(monkeypatch)
+    view = SidePanelView(make_panel_config())
+    panel_data = PanelData(color="w", score=7, moves=[], rating=1350)
+
+    view.render_frame(panel_data, height_px=200)
+
+    assert calls[0][0] == "White: 7  (rating 1350)"
+
+
+def test_render_frame_header_unchanged_when_rating_is_none(monkeypatch):
+    calls = make_recording_put_text(monkeypatch)
+    view = SidePanelView(make_panel_config())
+    panel_data = PanelData(color="w", score=7, moves=[], rating=None)
+
+    view.render_frame(panel_data, height_px=200)
+
+    assert calls[0][0] == "White: 7"
+
+
 def test_render_frame_draws_most_recent_moves_when_unscrolled(monkeypatch):
     calls = make_recording_put_text(monkeypatch)
     config = make_panel_config(line_height_px=10, padding_px=0)

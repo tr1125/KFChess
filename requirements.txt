@@ -2,3 +2,6 @@ pytest
 coverage
 opencv-python
 numpy
+websockets
+bcrypt
+sqlalchemy

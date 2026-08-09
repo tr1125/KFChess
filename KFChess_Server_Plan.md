@@ -88,8 +88,10 @@ existing `Position.square_name()` convention already in `model/position.py` (e.g
 | `login` | client→server | `{"username", "password"}` (Stage 3; Stage 2 has no `password` field) | Stage 2/3 |
 | `login_ok` | server→client | `{"username", "rating"}` | Stage 2/3 |
 | `login_error` | server→client | `{"reason"}` | Stage 2/3 |
+| `move_started` | server→client | `{"color", "kind", "from", "to", "duration_ms"}` — sent once when a leg begins; client runs its own local glide animation for `duration_ms` from receipt, no further messages needed mid-flight | Stage 2 |
 | `move` | client→server | `{"from", "to"}` | Stage 2 |
 | `jump` | client→server | `{"square"}` | Stage 2 |
+| `promote` | client→server | `{"square", "piece_type"}` — overrides the auto-Queen default; calls the existing (already-tested) `choose_promotion`/`apply_promotion_choice` on the server's `Controller`. Preserves the local promotion-menu popup feature over the network unchanged. | Stage 2 |
 | `state` | server→client | full `GameState` snapshot (board, scores, move log, pending promotions) | Stage 2 |
 | `game_started` | server→client | `{"white", "black", "room_id"}` | Stage 2 |
 | `game_ended` | server→client | `{"result": "white_wins"/"black_wins"/"draw", "reason": "capture"/"resign"/"disconnect_timeout"/"insufficient_material", "rating_changes": {...}}` | Stage 2 (result), Stage 3 (rating_changes) |
@@ -118,7 +120,8 @@ subscribe to instead of reaching into `GameEngine` internals.
 **Scope:**
 - Implement `server/bus.py`: `EventBus` with `subscribe(topic: str, callback: Callable[[dict], Awaitable[None]])` and `async publish(topic: str, payload: dict)`.
 - One `EventBus` instance per game (later: per room).
-- Topics: `move_made`, `score_updated`, `game_started`, `game_ended`. (No separate `sound`/`animation` topic — client derives sound/animation cues from these same events.)
+- Topics: `move_started`, `move_made`, `score_updated`, `game_started`, `game_ended`. (No separate `sound` topic — client derives sound cues from these same events.)
+- `move_started` fires the instant a leg begins (mirrors the existing settlement call sites but at the *start* of a leg instead of the end — added as a small addendum to this stage's event-buffering work, using the exact same `_pending_events`/`drain_events()` mechanism, not a new mechanism). Payload: piece color/kind, from-square, to-square, `duration_ms` for this leg. This exists specifically so Stage 2's client can animate smooth gliding over the network by running its *own* local interpolation timer from the moment it receives this message, instead of the server needing to broadcast full state on a tick (see Stage 2).
 - Wire the existing local engine's known trigger points (score changes, move completions, game start/end) to `publish()` calls instead of direct calls into the panel/observer.
 - The existing `observers/move_log_observer.py` pattern is the closest analog — extend/replace it to subscribe to the bus rather than being called directly, if that doesn't break existing tests.
 
@@ -142,7 +145,8 @@ rejected.
 - On connect: prompt via `login` message with just `{"username"}` (no password check yet — any username accepted).
 - Assign color by join order (first = White, second = Black), consistent with §0.
 - Translate incoming `move`/`jump` envelopes into calls on a server-side `Controller` instance wrapping `GameEngine`.
-- On every `move_made`/`score_updated`/`game_started`/`game_ended` bus event (from Stage 1's bus), broadcast a `state` (or matching) message to both connected clients.
+- On every `move_started`/`move_made`/`score_updated`/`game_started`/`game_ended` bus event (from Stage 1's bus), broadcast the matching message to both connected clients.
+- **Animation approach (deliberate choice, not a periodic tick):** `move_started` is sent once per leg, at the start. The client uses it to run its *own* local glide animation for `duration_ms` (reusing the exact interpolation logic the local single-player renderer already has), rather than the server broadcasting full state repeatedly during the flight. This is both smoother (matches today's local feel) and far cheaper on the wire than a tick-based broadcast (one message per leg, not 20–30/sec). `state` messages (on settlement events) remain the authority for final/resting positions and anything else (captures, scores).
 - Server owns the only `GameEngine`/`Controller` instance — it is the sole source of truth.
 
 **Client side (`app_ui.py`, `driver/`, `view/`):**
@@ -155,6 +159,7 @@ rejected.
 - Two client processes on the same machine, pointed at the same local server, can play a full game to king-capture, each seeing the other's moves reflected live.
 - Board is visually flipped on the Black client relative to the White client.
 - A 3rd connection attempt is cleanly rejected with a clear message, not a crash.
+- **Color authorization is actually enforced, not just assigned.** The White-assigned socket's `move`/`jump`/`promote` requests are rejected (or silently ignored) if they target a Black piece, and vice versa. This was flagged as a known gap all the way back in `ABOUT.md` (`PlayerSession... claims a color per player (not yet enforced)`) — it must be a real server-side check now that two independent, untrusted client processes exist, not an assumption. Test this explicitly: confirm from a live White client, attempting to move a Black piece has no effect.
 
 ---
 
@@ -164,7 +169,8 @@ rejected.
 after every game (including the new draw case).
 
 **Server side (`server/db.py`, `server/auth.py`, `server/rating.py`):**
-- SQLite schema (single `users` table):
+- **Database access goes through SQLAlchemy — not raw `sqlite3` calls or hand-written SQL strings.** The storage engine is still SQLite (a local file, per the original requirement), but `db.py` must talk to it via SQLAlchemy (either the ORM with a declarative `User` model, or SQLAlchemy Core with a `Table` definition — either is fine, pick one and be consistent). The point: swapping the underlying database engine later (Postgres, MySQL, whatever) should mean changing a connection URL in `server/config.py`, not rewriting `db.py`'s query logic. This is the same "don't hardcode to one implementation" principle as §6's extensibility guidance, applied to storage instead of board representation. `db.py` still owns *all* database access — `auth.py`/`rating.py` never construct their own queries/sessions — same DRY/SRP boundary as before, just expressed through SQLAlchemy instead of raw SQL. Add `sqlalchemy` to `requirements.txt`. `config.py`'s `DB_PATH` becomes a SQLAlchemy connection URL (e.g. `sqlite:///kfchess.db`; tests use `sqlite:///:memory:`) rather than a bare file path.
+- Schema (single `users` table, defined via SQLAlchemy — this is illustrative of the columns/types/defaults needed, not literal SQL to paste in):
 
 ```sql
 CREATE TABLE users (
@@ -183,6 +189,7 @@ CREATE TABLE users (
 - `server/rating.py`:
   - Implement the ELO update from §0 exactly, `K_FACTOR = 32` from `server/config.py`.
   - Implement **K-v-K draw detection**: after every move settles, check the board — if the only pieces remaining are the two kings, immediately end the game with `result: "draw"`, `reason: "insufficient_material"`, apply `S = 0.5` to both players' ratings.
+  - **Implementation pattern (discovered during Stage 3 build, keep for Stage 4):** several existing test fixtures across `kungfu_chess/tests/` are bare King-vs-King boards used to test unrelated things. Do **not** wire K-v-K detection into `GameEngine`/`RuleEngine`'s automatic settle path — that would make those tests freeze on their first move. Instead, add an additive `GameEngine.force_draw()` method (mirrors the existing king-capture-ends-game mechanism) that only `Room` calls, only after explicitly checking the board via a pure `server/rating.py` helper. Same pattern applies to Stage 4's disconnect-timeout resignation — that's also an externally-triggered game end, not a capture the engine detects on its own, so it should follow this same "additive engine method, externally triggered" shape rather than being pushed into the engine's automatic path.
   - On any `game_ended` bus event, compute and persist the new ratings to SQLite, and increment `games_played`/`wins`/`losses`/`draws` accordingly. Include the resulting `rating_changes` in the `game_ended` message sent to clients.
 
 **Client side:**

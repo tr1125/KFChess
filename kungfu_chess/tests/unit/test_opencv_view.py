@@ -177,7 +177,7 @@ class RecordingSpriteCache:
         return self._sprite
 
 
-def make_view(board_config, sprite_state_mapping, sprite_cache, board_image, sprite_registry=None):
+def make_view(board_config, sprite_state_mapping, sprite_cache, board_image, sprite_registry=None, flipped=False):
     return OpenCvView(
         board_config,
         sprite_state_mapping,
@@ -186,6 +186,7 @@ def make_view(board_config, sprite_state_mapping, sprite_cache, board_image, spr
         sprite_cache=sprite_cache,
         sprite_registry=sprite_registry,
         board_image=board_image,
+        flipped=flipped,
     )
 
 
@@ -371,6 +372,37 @@ def test_render_frame_glides_a_moving_piece_between_its_leg_cells():
     assert (frame[0:2, 1:3] == 255).all()
     assert (frame[0:2, 0:1] == 0).all()
     assert (frame[0:2, 3:6] == 0).all()
+
+
+def test_render_frame_glides_correctly_when_flipped():
+    """Regression test: the flipped-orientation branch of
+    BoardRenderer.pixel_position() needs board_height/board_width, and
+    the glide-interpolation call site in _piece_position_px previously
+    never passed them through (only render()/_draw_selection() did) -
+    this would raise a TypeError the instant a flipped (Black) client
+    tried to render a gliding piece, live.
+    """
+    state, board = make_game_state([["wP", ".", "."]])
+    board.get(0, 0).state = PieceState.MOVING
+    board_image = np.zeros((2, 6, 3), dtype=np.uint8)  # 1 row x 3 cols at cell_size_px=2
+    sprite_cache = RecordingSpriteCache(np.full((2, 2, 4), fill_value=255, dtype=np.uint8))
+    sprite_set = make_sprite_set(["p0.png"], frames_per_sec=1, is_loop=True)
+    registry = FakeSpriteRegistry({("w", "P", "MOVING"): sprite_set})
+
+    def in_flight_leg(piece):
+        return (Position(0, 0), Position(0, 1), 0, 1000)
+
+    view = make_view(
+        make_board_config(cell_size_px=2), make_sprite_state_mapping(), sprite_cache, board_image,
+        sprite_registry=registry, flipped=True,
+    )
+
+    frame = view.render_frame(state, now_ms=500, in_flight_leg=in_flight_leg)  # must not raise
+
+    # Mirrored relative to the unflipped case above: logical col 0 glides
+    # toward the board's right edge, not its left.
+    assert (frame[0:2, 3:5] == 255).all()
+    assert (frame[0:2, 0:3] == 0).all()
 
 
 def test_render_frame_keeps_static_cell_position_for_a_resting_piece_even_with_in_flight_leg_supplied():

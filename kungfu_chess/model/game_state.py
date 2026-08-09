@@ -129,6 +129,25 @@ class GameState:
     def history_text(self):
         return " ".join(notation for _color, notation in self._history_entries)
 
+    def history_entries(self):
+        """The raw (color, notation) tuples, color included - unlike
+        move_history()/history_text(), which discard it. Exists so a
+        full-fidelity snapshot (see io/state_codec.py) can round-trip
+        moves_for_color() correctly on the receiving end, not just the
+        flattened notation strings.
+        """
+        return list(self._history_entries)
+
+    def restore_history(self, entries):
+        """Replace history wholesale with already-recorded (color,
+        notation) entries - the counterpart to history_entries(), used
+        only when rebuilding a GameState from a wire snapshot (see
+        io/state_codec.py), never during normal play (record_move/
+        record_promotion/record_airborne_capture are how live play
+        appends entries one at a time).
+        """
+        self._history_entries = list(entries)
+
     # --- scores ---------------------------------------------------------
 
     def record_capture(self, capturing_color, value):

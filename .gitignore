@@ -17,6 +17,12 @@ htmlcov/
 coverage.xml
 .tox/
 
+# SQLite (Stage 3 accounts DB)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
 # Packaging
 *.egg-info/
 dist/
@@ -33,3 +39,6 @@ Thumbs.db
 
 # VPL
 *.zip
+
+
+TODO.md

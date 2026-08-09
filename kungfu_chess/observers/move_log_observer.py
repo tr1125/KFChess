@@ -21,13 +21,15 @@ class PanelData:
     color: str
     score: int
     moves: list  # list[str] - the FULL per-color move list, not pre-truncated
+    rating: int = None  # Stage 3 - a player's persisted ELO rating, or None if unknown
 
 
-def snapshot_for_color(game_state, color):
+def snapshot_for_color(game_state, color, rating=None):
     return PanelData(
         color=color,
         score=game_state.scores()[color],
         moves=game_state.moves_for_color(color),
+        rating=rating,
     )
 
 

@@ -61,6 +61,17 @@ def test_schedule_move_scales_leg_duration_by_the_legs_own_chebyshev_distance():
     assert complete_at == 2000
 
 
+def test_schedule_move_returns_the_scheduled_pending_move():
+    tracker = MotionTracker()
+    piece = make_piece()
+    move = tracker.schedule_move(Position(0, 0), [Position(1, 1)], piece, per_cell_ms=100, now_ms=0)
+    assert move.current_position == Position(0, 0)
+    assert move.leg_target == Position(1, 1)
+    assert move.leg_started_at_ms == 0
+    assert move.complete_at_ms == 100
+    assert move.piece is piece
+
+
 def test_has_pending_move_from_false_for_other_cell():
     tracker = MotionTracker()
     tracker.schedule_move(Position(0, 0), [Position(1, 1)], make_piece(), per_cell_ms=100, now_ms=0)
@@ -141,6 +152,20 @@ def test_clear_moves_removes_all_pending_moves():
 
 
 # --- MotionTracker: schedule_next_leg (continuing a multi-leg move) ---
+
+def test_schedule_next_leg_returns_the_scheduled_pending_move():
+    tracker = MotionTracker()
+    piece = make_piece()
+    path = [Position(0, 1), Position(0, 2)]
+    tracker.schedule_move(Position(0, 0), path, piece, per_cell_ms=1000, now_ms=0)
+    due_move = tracker.take_due_moves(1000)[0]
+    next_move = tracker.schedule_next_leg(due_move, per_cell_ms=1000)
+    assert next_move.current_position == Position(0, 1)
+    assert next_move.leg_target == Position(0, 2)
+    assert next_move.leg_started_at_ms == 1000
+    assert next_move.complete_at_ms == 2000
+    assert next_move.piece is piece
+
 
 def test_schedule_next_leg_advances_current_position_and_target():
     tracker = MotionTracker()
@@ -350,6 +375,22 @@ def test_begin_rest_stamps_state_entered_at():
     tracker = MotionTracker()
     tracker.begin_rest(piece, PieceState.LONG_REST, rest_over_ms=100, now_ms=17)
     assert piece.state_entered_at == 17
+
+
+def test_wake_due_rests_returns_the_woken_pieces():
+    piece_a = make_piece()
+    piece_b = make_piece()
+    tracker = MotionTracker()
+    tracker.begin_rest(piece_a, PieceState.LONG_REST, rest_over_ms=100, now_ms=0)
+    tracker.begin_rest(piece_b, PieceState.SHORT_REST, rest_over_ms=200, now_ms=0)
+    assert tracker.wake_due_rests(100) == [piece_a]
+    assert tracker.wake_due_rests(200) == [piece_b]
+
+
+def test_wake_due_rests_returns_an_empty_list_when_nothing_is_due():
+    tracker = MotionTracker()
+    tracker.begin_rest(make_piece(), PieceState.LONG_REST, rest_over_ms=100, now_ms=0)
+    assert tracker.wake_due_rests(99) == []
 
 
 def test_wake_due_rests_wakes_rest_exactly_at_expiry():

@@ -38,6 +38,18 @@ def test_snapshot_for_color_for_a_player_with_no_activity_yet():
     assert data == PanelData(color="b", score=0, moves=[])
 
 
+def test_snapshot_for_color_passes_through_an_explicit_rating():
+    state = GameState()
+    data = snapshot_for_color(state, "w", rating=1350)
+    assert data == PanelData(color="w", score=0, moves=[], rating=1350)
+
+
+def test_snapshot_for_color_defaults_rating_to_none():
+    state = GameState()
+    data = snapshot_for_color(state, "w")
+    assert data.rating is None
+
+
 # --- clamp_scroll_offset ---
 
 

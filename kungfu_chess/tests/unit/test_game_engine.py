@@ -727,6 +727,7 @@ def test_drain_events_after_a_settled_move_with_no_capture():
     engine.wait(1000)
 
     assert engine.drain_events() == [
+        ("move_started", {"color": "w", "kind": "K", "from": "a3", "to": "b2", "duration_ms": 1000}),
         ("move_made", {"color": "w", "from": "a3", "to": "b2"}),
     ]
 
@@ -737,7 +738,11 @@ def test_drain_events_is_empty_until_something_settles_and_clears_after_draining
     assert engine.drain_events() == []
 
     engine.request_move(0, 0, 1, 1)
-    assert engine.drain_events() == []  # nothing has settled yet - still mid-flight
+    # move_started fires the instant the leg begins - it doesn't wait for
+    # settlement, unlike move_made.
+    assert engine.drain_events() == [
+        ("move_started", {"color": "w", "kind": "K", "from": "a3", "to": "b2", "duration_ms": 1000}),
+    ]
 
     engine.wait(1000)
     assert engine.drain_events() != []
@@ -751,6 +756,8 @@ def test_drain_events_includes_score_updated_on_a_capture():
     engine.wait(2000)
 
     assert engine.drain_events() == [
+        ("move_started", {"color": "w", "kind": "R", "from": "a1", "to": "b1", "duration_ms": 1000}),
+        ("move_started", {"color": "w", "kind": "R", "from": "b1", "to": "c1", "duration_ms": 1000}),
         # Only the final settling leg is recorded (same as
         # GameState.record_move) - "from" is where that leg began (b1),
         # not the original two-cell request's origin (a1).
@@ -767,7 +774,10 @@ def test_drain_events_after_a_move_stopped_by_a_friendly_block():
     engine.wait(2000)
 
     assert engine.drain_events() == [
+        ("move_started", {"color": "w", "kind": "K", "from": "c1", "to": "c2", "duration_ms": 1000}),
+        ("move_started", {"color": "w", "kind": "R", "from": "a2", "to": "b2", "duration_ms": 1000}),
         ("move_made", {"color": "w", "from": "c1", "to": "c2"}),  # wK's settled move
+        ("move_started", {"color": "w", "kind": "R", "from": "b2", "to": "c2", "duration_ms": 1000}),
         ("move_made", {"color": "w", "from": "b2", "to": "b2"}),  # wR stopped at (0, 1)
     ]
 
@@ -793,6 +803,8 @@ def test_drain_events_for_an_airborne_capture_includes_move_made_and_score_updat
     engine.wait(1000)
 
     assert engine.drain_events() == [
+        ("move_started", {"color": "w", "kind": "K", "from": "b2", "to": "b2", "duration_ms": 1000}),
+        ("move_started", {"color": "b", "kind": "R", "from": "c2", "to": "b2", "duration_ms": 1000}),
         ("move_made", {"color": "b", "from": "c2", "to": "b2"}),  # bR's ordinary move
         ("move_made", {"color": "w", "from": "b2", "to": "b2"}),  # wK reclaims its cell
         ("score_updated", {"scores": {"w": 5, "b": 0}}),
@@ -809,3 +821,50 @@ def test_drain_events_for_an_airborne_capture_of_a_king_includes_game_ended():
     assert engine.is_game_over()
     events = engine.drain_events()
     assert ("game_ended", {"winner": "w"}) in events
+
+
+def test_drain_events_includes_rest_over_once_a_settled_pieces_rest_elapses():
+    """A networked client only learns about board changes via broadcast
+    events (see server/rooms.py), unlike local play which reads the same
+    live GameState object directly - so a piece naturally waking from
+    LONG_REST/SHORT_REST needs its own event, distinct from move_made
+    (which only covers the settlement instant, not the later moment the
+    rest itself elapses).
+    """
+    rows = [["wK", ".", "."], [".", ".", "."], [".", ".", "."]]
+    engine, board = make_engine(rows)
+    engine.request_move(0, 0, 1, 1)
+    engine.wait(1000)  # settles into LONG_REST (default duration 1000ms)
+    engine.drain_events()
+
+    engine.wait(1000)  # the rest itself now elapses
+
+    assert engine.drain_events() == [
+        ("rest_over", {"color": "w", "kind": "K", "square": "b2"}),
+    ]
+
+
+def test_drain_events_does_not_include_rest_over_before_the_rest_elapses():
+    rows = [["wK", ".", "."], [".", ".", "."], [".", ".", "."]]
+    engine, board = make_engine(rows)
+    engine.request_move(0, 0, 1, 1)
+    engine.wait(1000)
+    engine.drain_events()
+
+    engine.wait(999)  # one ms short of the long-rest duration
+
+    assert engine.drain_events() == []
+
+
+def test_drain_events_includes_rest_over_for_a_piece_waking_from_a_jumps_short_rest():
+    rows = [["wK", ".", "."]]
+    engine, board = make_engine(rows)
+    engine.jump(0, 0)
+    engine.wait(1000)  # lands, begins SHORT_REST (default duration 500ms)
+    engine.drain_events()
+
+    engine.wait(500)
+
+    assert engine.drain_events() == [
+        ("rest_over", {"color": "w", "kind": "K", "square": "a1"}),
+    ]

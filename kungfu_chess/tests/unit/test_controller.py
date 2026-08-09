@@ -105,6 +105,48 @@ def test_in_flight_leg_forwards_the_piece_argument_and_return_value():
     assert engine.calls == [("in_flight_leg", piece)]
 
 
+# --- server-side cell-coordinate passthrough (move_piece/jump_piece) ---
+
+def test_move_piece_forwards_cells_unchanged_bypassing_selection():
+    controller, engine = make_controller(board_from([["wR", ".", "."]]))
+    controller.move_piece(0, 0, 0, 2)
+    assert engine.calls == [("request_move", 0, 0, 0, 2)]
+    assert controller.selected() is None
+
+
+def test_jump_piece_forwards_cell_unchanged():
+    controller, engine = make_controller(board_from([["wK", "."]]))
+    controller.jump_piece(0, 0)
+    assert engine.calls == [("jump", 0, 0)]
+
+
+def test_board_mapper_is_optional_when_only_cell_based_methods_are_used():
+    engine = RecordingEngine(board_from([["wR", "."]]))
+    controller = Controller(engine)
+    controller.move_piece(0, 0, 0, 1)
+    assert engine.calls == [("request_move", 0, 0, 0, 1)]
+
+
+# --- flipped board orientation (networked Black client) ---
+
+def test_flipped_click_converts_display_position_to_logical_before_selecting():
+    board = board_from([["bK", "."], [".", "wK"]])  # 2x2 board
+    engine = RecordingEngine(board)
+    controller = Controller(engine, BoardMapper(cell_size_px=100), flipped=True)
+    # Display-space (0, 0) (top-left) is logical (1, 1) when flipped on a
+    # 2x2 board - that's wK, not bK.
+    controller.click(50, 50)
+    controller.click(50, 150)  # display (1, 0) -> logical (0, 1): empty target
+    assert engine.calls == [("request_move", 1, 1, 0, 1)]
+
+
+def test_unflipped_click_is_unaffected_by_the_flipped_flag_default():
+    controller, engine = make_controller(board_from([["wR", ".", "."]]))
+    controller.click(50, 50)
+    controller.click(250, 50)
+    assert engine.calls == [("request_move", 0, 0, 0, 2)]
+
+
 # --- first click: what counts as a selection ---
 
 def test_first_click_on_empty_square_does_not_select():
